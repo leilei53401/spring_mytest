@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	monitor 发送监测统计
+        -->
+	<bean id="selectOrgSql" class="java.lang.String">
+		<constructor-arg>
+			<value><![CDATA[
+	                SELECT DISTINCT org_name FROM super_ssp.monitor_org
+					 ]]></value>
+		</constructor-arg>
+	</bean>
+     <bean name="parseFileMysqlJob" class="com.voole.ad.file.detail.MonitoMysqlJob">
+          <property name="selectOrgSql" ref="selectOrgSql" />
+	      <property name="preSql">
+	        	<value><![CDATA[
+	        SELECT DISTINCT creativeid, creative_name creativename
+			FROM (
+			SELECT  t.creativeid,c.`creative_name`
+			FROM
+			  super_ssp.plan t,super_ssp.creative c
+			WHERE t.`creativeid` = c.`creativeid`
+			AND t.`status` = 1 
+			AND t.`startdate` <=  '@yestoday' 
+			AND t.`enddate` >=  '@yestoday'
+			UNION ALL 
+			SELECT creativeid,c.creative_name
+			FROM super_ssp.creative c WHERE c.`status`=1   AND c.`is_adap`=1
+			AND startdate <=  '@yestoday'  
+			AND enddate >=  '@yestoday'
+			) tmp
+		]]></value>
+	        </property>
+	      <property name="insertSql">
+	      	<value>
+	      		<![CDATA[
+	       	INSERT INTO super_ssp_report.ad_report_sendcount (
+	       	creativeid,creative_name,monitor_company,sendnum_byday,sendnum_byhour,monitorhost,counttype,stamp) 
+			VALUES (
+            '@creativeid','@creativeName','@domain','@result','@hourResult','@monitorHost','@countType','@stamp')
+			]]>
+	      	</value>
+	      </property>
+     	  <property name="monitorPathType" value="0" />
+     	  <property name="monitorPath" value="/opt/webapps/SupersspMonitorAgent/data/" />
+     	   <property name="monitorHost" value="0"/>
+     </bean>
+     
+     
+    
+    <!-- 定时任务启动类 -->
+	<bean name="startJob" class="com.voole.ad.main.StartJob">
+	     <property name="parseFile" ref="parseFileJob" />
+		<!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+		<property name="timeDelay" value="0" />
+		<!-- timeStepSize:步长，连续处理几天的数据 -->
+		<property name="timeStepSize" value="1" />
+		<!-- 时间类型：0天，1小时(暂未处理) -->
+		<property name="timeType" value="0" />
+	</bean>
+    
+    
+    <bean name="startAdstatJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startSynchDBTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startAdstatJob" />   
+         <property name="cronExpression" value="0 28,58 */1 * * ?" />
+    </bean>	    
+    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startSynchDBTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

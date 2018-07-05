@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	机房同步阿里云平台字典表任务
+        -->
+        <!-- 配置每个表要同步的指定字段(防止直接用表时，字段不匹配同步异常问题) -->
+       <bean id="syncFieldsMap" class="java.util.HashMap">
+		<constructor-arg>
+			<map> 
+					<entry key="ad_position" value="positionid,priority,position_name,mediaid,status,stamp,number,super_adposid,if_calculate,adtypeid,oemid,cpmctl,avday_cpmctl,day_cpmctl,freq,day_freq"/>
+					<entry key="oem_info" value="stamp,oemid,oemname,brandid,mediaid,status,audom_audit,virtual_media,docking_method"/>
+					<entry key="plan" value="planid,planname,creativeid,adtypeid,startdate,enddate,areaflag,tagflag,insertiontime,status,stamp,cpmflag,cpm_amountflag,frequencyflag,audit_status,super_adposid,priority,starttime,endtime,brandflag,testflag,split_flag"/>
+					<entry key="creative" value="creativeid,advertiserid,creative_name,creative_type,length,squared_pos,status,audit_status,stamp,startdate,enddate,jump_id,send_flag,interaction_id,is_adap"/>
+                   <!--流量优化需要同步的表-->
+                    <!--,isadap-->
+                   <entry key="mediaplan" value="media_planid,planid,positionid,mediaid,startdate,enddate,frequencyflag,cmpflag,status,area_flag,stamp,taglag,creativeid,priority,starttime,endtime,audit_status,oemid,testflag,send_flag"/>
+                   <entry key="mediaplan_area_link" value="id,type,area_code,media_planid"/>
+                   <entry key="mediaplan_cpm_link" value="id,cpmtype,amount,media_planid,date"/>
+			</map>
+		</constructor-arg>
+	</bean>
+     <!-- 需要时间替换的字段 -->
+    <bean id="replaceStampValueMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map> 
+				<entry key="plan" value="startdate,enddate,stamp"/>
+				<!-- <entry key="creative" value="startdate,enddate"/> -->
+                <entry key="mediaplan" value="startdate,enddate"/>
+			</map>
+		</constructor-arg>
+	</bean>
+	<!-- 同步忽略的字段 -->
+	 <bean id="skipStampValueMap" class="java.util.HashMap">
+		<constructor-arg>
+			<map> 
+					<entry key="ad_position" value="stamp"/>
+					<entry key="oem_info" value="stamp"/>
+					<entry key="creative" value="stamp"/>
+                    <entry key="mediaplan" value="stamp"/>
+			</map>
+		</constructor-arg>
+	</bean>
+        
+     <bean name="syncDictDbJob" class="com.voole.ad.prepare.detail.SyncDictDbJob">
+     	  <property name="tables" value="ad_position,oem_info,plan,creative,mediaplan,mediaplan_area_link,mediaplan_cpm_link"/>
+     	  <property name="urlPrefix" value="http://i.super-ssp.tv:8092/rest/api/v1/syncdictdata/" />
+   	     <property name="replaceStampValueMap" ref="replaceStampValueMap" />
+   	     <property name="skipStampValueMap" ref="skipStampValueMap" />
+   	     <!-- 直接配置需同步的字段，防止阿里云端增减字段引起异常 -->
+   	      <property name="syncFieldsMap" ref="syncFieldsMap" />
+     </bean>
+    
+    <!-- 定时任务启动类 -->
+	<bean name="startJob" class="com.voole.ad.main.StartJob">
+	     <property name="parseFile" ref="syncDictDbJob" />
+		<!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+		<property name="timeDelay" value="0" />
+		<!-- timeStepSize:步长，连续处理几天的数据 -->
+		<property name="timeStepSize" value="1" />
+		<!-- 时间类型：0天，1小时 -->
+		<property name="timeType" value="1" />
+	</bean>
+    
+    
+    <bean name="startAdstatJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startSynchDBTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startAdstatJob" />   
+         <property name="cronExpression" value="30 32 */1 * * ?" />
+    </bean>	    
+    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startSynchDBTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

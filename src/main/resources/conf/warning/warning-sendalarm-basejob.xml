@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+         告警发送任务
+        -->
+
+	<bean name="warnSendJob" class="com.voole.ad.warning.WarnSendJob">
+        <property name="thresholdCommonRate" value="0.05"/>
+        <property name="thresholdImportantRate" value="0.1"/>
+        <property name="thresholdEmergentRate" value="0.15"/>
+        <property name="getProjectInfoSql">
+            <value><![CDATA[
+  SELECT pp.*, c.creative_name, o.oemname
+FROM
+  ( SELECT p.projectid, p.scheduleid, p.schedule_name,
+    CASE WHEN p.`creativeid` IS NULL THEN
+       (SELECT DISTINCT creativeid FROM super_ssp.project_schedule p1 WHERE p1.scheduleid = p.associated_id LIMIT 1)
+        ELSE p.creativeid END creativeid,
+    s.oemid, s.positionid adptype, sa.cpm_amount amount
+  FROM    super_ssp.project_schedule p,    super_ssp.schedule_cpm_assign s,    super_ssp.schedule_assign_amount sa
+  WHERE p.scheduleid = s.scheduleid     AND s.assign_id = sa.schedule_id
+    AND p.starttime <= '@today'
+    AND p.endtime >= '@today'
+    AND sa.date = '@today'
+    ) pp,
+  super_ssp.creative c,
+  super_ssp.oem_info o
+WHERE pp.creativeid = c.creativeid
+  AND pp.oemid = o.oemid
+        	]]></value>
+        </property>
+        <property name="getRealValueSql">
+            <value><![CDATA[
+       SELECT t.oemid ,t.creativeid,t.adptype,MAX(playnum) playnum,MAX(devnum) devnum
+    FROM super_ssp_report.ad_adptype_oemid_dayrt_v2 t
+    WHERE t.last_update >= '@starttime' AND t.last_update<'@endtime'
+    AND t.creativeid=@creativeid AND t.oemid=@oemid AND t.adptype=@adptype
+    AND te=0
+    GROUP BY t.oemid,t.creativeid,t.adptype
+        	]]></value>
+        </property>
+        <property name="getEstimateValueSql">
+            <value><![CDATA[
+  SELECT t.mediaid oemid,t.creativeid,t.adptype, esvalue
+    FROM monitor_threshold_estimate t
+    WHERE t.daytime = '@daytime' and moment='@moment'
+    AND t.creativeid=@creativeid AND t.oemid=@oemid AND t.adptype=@adptype
+        	]]></value>
+        </property>
+        <property name="insertAlarmInfoSql">
+            <value><![CDATA[
+ insert into monitor_alarm
+                (projectid, oemid, adptype, daytime, moment,alarmtext,levelid,linkman)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
+        	]]></value>
+            <!--告警通知角色 1,4-->
+        </property>
+	</bean>
+
+     <!--告警发送V2-->
+    <bean name="warnSendJobV2" class="com.voole.ad.warning.WarnSendAlarmJob">
+        <property name="thresholdCommonRate" value="0.05"/>
+        <property name="thresholdImportantRate" value="0.1"/>
+        <property name="thresholdEmergentRate" value="0.15"/>
+
+        <property name="alarmRulesSql">
+            <value><![CDATA[
+           SELECT * FROM monitor_alarm_rules
+        	]]></value>
+        </property>
+        <property name="getProjectInfoSql">
+            <value><![CDATA[
+  SELECT pp.*, c.creative_name, o.oemname
+FROM
+  ( SELECT p.projectid, p.scheduleid, p.schedule_name,
+    CASE WHEN p.`creativeid` IS NULL THEN
+       (SELECT DISTINCT creativeid FROM super_ssp.project_schedule p1 WHERE p1.scheduleid = p.associated_id LIMIT 1)
+        ELSE p.creativeid END creativeid,
+    s.oemid, s.positionid adptype, sa.cpm_amount amount
+  FROM    super_ssp.project_schedule p,    super_ssp.schedule_cpm_assign s,    super_ssp.schedule_assign_amount sa
+  WHERE p.scheduleid = s.scheduleid     AND s.assign_id = sa.schedule_id
+    AND p.starttime <= '@today'
+    AND p.endtime >= '@today'
+    AND sa.date = '@today'
+    ) pp,
+  super_ssp.creative c,
+  super_ssp.oem_info o
+WHERE pp.creativeid = c.creativeid
+  AND pp.oemid = o.oemid
+        	]]></value>
+        </property>
+        <property name="getRealValueSql">
+            <value><![CDATA[
+       SELECT t.oemid ,t.creativeid,t.adptype,MAX(playnum) playnum,MAX(devnum) devnum
+    FROM super_ssp_report.ad_adptype_oemid_dayrt_v2 t
+    WHERE t.last_update >= '@starttime' AND t.last_update<'@endtime'
+    AND t.creativeid=@creativeid AND t.oemid=@oemid AND t.adptype=@adptype
+    AND te=0
+    GROUP BY t.oemid,t.creativeid,t.adptype
+        	]]></value>
+        </property>
+        <property name="getEstimateValueSql">
+            <value><![CDATA[
+  SELECT t.mediaid oemid,t.creativeid,t.adptype, esvalue
+    FROM monitor_threshold_estimate t
+    WHERE t.daytime = '@daytime' and moment='@moment'
+    AND t.creativeid=@creativeid AND t.oemid=@oemid AND t.adptype=@adptype
+        	]]></value>
+        </property>
+        <property name="insertAlarmInfoSql">
+            <value><![CDATA[
+ insert into monitor_alarm
+                (projectid, oemid, adptype, daytime, moment,alarmtext,levelid,linkman)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
+        	]]></value>
+            <!--告警通知角色 1,4-->
+        </property>
+    </bean>
+    
+    
+    <bean name="warnSendDetail" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="warnSendJobV2" />
+        <property name="targetMethod" value="sendAlarm" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="warnSendTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+         <property name="jobDetail" ref="warnSendDetail" />
+         <property name="cronExpression" value="10 */2 1-23 * * ?" />
+    </bean>	    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="warnSendTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

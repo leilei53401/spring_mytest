@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <!--
+        开机用户预下载权重计算
+    -->
+    <!-- ################  配置计算任务开始  ########################### -->
+    <bean name="predown_nonstrict" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_nonstrict" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+             set hive.exec.dynamic.partition.mode=nonstrict
+        	]]></value>
+        </property>
+    </bean>
+    <!-- 1、 计算昨日用户 , 根据昨日库存数据 -->
+    <bean name="predown_yestodaymac" class="com.voole.ad.aggre.detail.task.PreStartAggreTask">
+        <property name="taskId" value="predown_yestodaymac"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table tmp_startpre_mac_dict PARTITION (tagid, oemid)
+select mac, mediaid, provinceid, cityid, 1 as weight, count(1) as num, @tagid as tagid, oemid
+from superssp_adstat.superssp_adstat_inv t
+WHERE t.daytime=@yestoday and t.adptype = 90000010
+group by mac, mediaid, provinceid, cityid, oemid
+        	]]></value>
+        </property>
+    </bean>
+    <!-- 2、获取字典表有，临时表没有的用户 ，历史用户 ，昨日之前用户，权重降级 -->
+    <bean name="predown_yestodaybeforemac" class="com.voole.ad.aggre.detail.task.PreStartAggreTask">
+        <property name="taskId" value="predown_yestodaybeforemac"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table tmp_old_startpre_mac_dict PARTITION (tagid, oemid)
+select d.mac, d.mediaid, d.provinceid, d.cityid,
+case when d.tagid = @tagid then  d.weight*0.9 else d.weight end  weight,
+case when d.tagid = @tagid then  d.num*0.9 else d.num end  num,
+d.tagid, d.oemid
+from startpre_mac_dict d left join tmp_startpre_mac_dict t
+on (d.tagid = t.tagid and  d.oemid = t.oemid and d.mac = t.mac)
+WHERE t.mac is null
+        	]]></value>
+        </property>
+    </bean>
+    <!-- 3、 获取临时表有，字典表没有，新用户，权重 为 1 。 -->
+    <bean name="predown_yestodaynewmac" class="com.voole.ad.aggre.detail.task.PreStartAggreTask">
+        <property name="taskId" value="predown_yestodaynewmac"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+ insert overwrite table tmp_new_startpre_mac_dict PARTITION (tagid, oemid)
+select t.mac, t.mediaid, t.provinceid, t.cityid, 1 as weight , t.num as num, @tagid as tagid, t.oemid
+from tmp_startpre_mac_dict t left join startpre_mac_dict d
+on (t.tagid = d.tagid and  t.oemid = d.oemid and t.mac = d.mac)
+WHERE d.mac is null
+        	]]></value>
+        </property>
+    </bean>
+
+    <!--4、 获取共同用户，权重增加 -->
+    <bean name="predown_yestodaysharemac" class="com.voole.ad.aggre.detail.task.PreStartAggreTask">
+        <property name="taskId" value="predown_yestodaysharemac"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+        insert overwrite table tmp_share_startpre_mac_dict PARTITION (tagid, oemid)
+select t.mac, t.mediaid, t.provinceid, t.cityid, d.weight*(1+0.1*t.num) as weight, (t.num+d.num)/2, @tagid as tagid, t.oemid
+from tmp_startpre_mac_dict t, startpre_mac_dict d
+WHERE t.tagid = d.tagid and  t.oemid = d.oemid
+and t.mac = d.mac
+        	]]></value>
+        </property>
+    </bean>
+    <!--5:清空原字典表，加入新数据-->
+    <bean name="predown_cleardict" class="com.voole.ad.aggre.detail.BaseAggreTask">
+        <property name="taskId" value="predown_cleardict"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+        TRUNCATE TABLE startpre_mac_dict
+        ]]>
+            </value>
+        </property>
+    </bean>
+
+
+    <!--6、写历史用户到用户表 -->
+    <bean name="predown_inserthistorymac" class="com.voole.ad.aggre.detail.BaseAggreTask">
+        <property name="taskId" value="predown_inserthistorymac"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+        insert overwrite table startpre_mac_dict PARTITION (tagid, oemid)
+        select mac, mediaid, provinceid, cityid, weight, num, tagid, oemid
+        from tmp_old_startpre_mac_dict
+        ]]>
+            </value>
+        </property>
+    </bean>
+
+    <!--7、追加新增用户到用户表 -->
+    <bean name="predown_addnewmac" class="com.voole.ad.aggre.detail.BaseAggreTask">
+        <property name="taskId" value="predown_addnewmac"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+	    insert into table startpre_mac_dict PARTITION (tagid, oemid)
+select mac, mediaid, provinceid, cityid, weight, num, tagid, oemid
+from tmp_new_startpre_mac_dict
+        	]]></value>
+        </property>
+    </bean>
+
+    <!--8、 追加共同用户到用户表 -->
+    <bean name="predown_addsharemac" class="com.voole.ad.aggre.detail.BaseAggreTask">
+        <property name="taskId" value="predown_addsharemac"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+insert into table startpre_mac_dict PARTITION (tagid, oemid)
+select mac, mediaid, provinceid, cityid, weight, num, tagid, oemid
+from tmp_share_startpre_mac_dict
+        	]]></value>
+        </property>
+    </bean>
+
+    <!--9.1 开始清空中间环节表 -->
+    <bean name="predown_cleartmpmac" class="com.voole.ad.aggre.detail.BaseAggreTask">
+        <property name="taskId" value="predown_cleartmpmac"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+				TRUNCATE TABLE tmp_startpre_mac_dict
+        	]]></value>
+        </property>
+    </bean>
+    <!--9.2  -->
+    <bean name="predown_cleartmpshare" class="com.voole.ad.aggre.detail.BaseAggreTask">
+        <property name="taskId" value="predown_cleartmpshare"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+				TRUNCATE TABLE tmp_share_startpre_mac_dict
+        	]]></value>
+        </property>
+    </bean>
+    <!--9.3 -->
+    <bean name="predown_cleartmpold" class="com.voole.ad.aggre.detail.BaseAggreTask">
+        <property name="taskId" value="predown_cleartmpold"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+				TRUNCATE TABLE tmp_old_startpre_mac_dict
+        	]]></value>
+        </property>
+    </bean>
+    <!--9.4 -->
+    <bean name="predown_cleartmpnew" class="com.voole.ad.aggre.detail.BaseAggreTask">
+        <property name="taskId" value="predown_cleartmpnew"/>
+        <property name="enable" value="true"/>
+        <property name="taskBody">
+            <value><![CDATA[
+				TRUNCATE TABLE tmp_new_startpre_mac_dict
+        	]]></value>
+        </property>
+    </bean>
+
+    <!-- ################  组织任务   ########################### -->
+
+    <bean id="agreeTaskMap" class="java.util.LinkedHashMap">
+        <constructor-arg>
+            <map>
+                <entry key="predown_nonstrict" value-ref="predown_nonstrict"/>
+                <entry key="predown_yestodaymac" value-ref="predown_yestodaymac"/>
+                <entry key="predown_yestodaybeforemac" value-ref="predown_yestodaybeforemac"/>
+                <entry key="predown_yestodaynewmac" value-ref="predown_yestodaynewmac"/>
+                <entry key="predown_yestodaysharemac" value-ref="predown_yestodaysharemac"/>
+                <entry key="predown_cleardict" value-ref="predown_cleardict"/>
+                <entry key="predown_inserthistorymac" value-ref="predown_inserthistorymac"/>
+                <entry key="predown_addnewmac" value-ref="predown_addnewmac"/>
+                <entry key="predown_addsharemac" value-ref="predown_addsharemac"/>
+                <entry key="predown_cleartmpmac" value-ref="predown_cleartmpmac"/>
+                <entry key="predown_cleartmpshare" value-ref="predown_cleartmpshare"/>
+                <entry key="predown_cleartmpold" value-ref="predown_cleartmpold"/>
+                <entry key="predown_cleartmpnew" value-ref="predown_cleartmpnew"/>
+            </map>
+        </constructor-arg>
+    </bean>
+
+    <!-- 开机预下载终端权重计算hive汇聚任务类 -->
+    <bean name="preDownloadAggreJob" class="com.voole.ad.aggre.detail.BaseAggreJob">
+        <property name="agreeTaskMap" ref="agreeTaskMap"/>
+    </bean>
+
+</beans>

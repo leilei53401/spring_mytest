@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	实时计算统计
+        -->
+
+    <!--同步工具类-->
+    <bean name="syncAliyunUtils" class="com.voole.ad.utils.SyncAliyunUtils">
+        <!--<property name="urlPrefix" value="http://i.super-ssp.tv:8092/rest/api/v1/syncreportdata/" />-->
+        <property name="urlPrefix" value="http://localhost:8080/rest/api/v1/syncrtdata/" />
+    </bean>
+
+
+    <!--########## 实时计算天统计任务 ###############-->
+
+    <bean name="realTimeDayCalJob" class="com.voole.ad.prepare.detail.RealTimeStatDay">
+        <property name="syncFlag" value="1"/>
+        <property name="syncAliyunUtils" ref="syncAliyunUtils"/>
+    </bean>
+
+    <!-- 定时任务启动类 -->
+	<bean name="startRealTimeDayJob" class="com.voole.ad.main.StartJob">
+
+        <property name="prepareJob" ref="realTimeDayCalJob"/>
+
+        <!--<property name="extendOptJob" ref="syncRegInfReportExtJob"/>-->
+        <!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+        <property name="timeDelay" value="0"/>
+        <!-- timeStepSize:步长，连续处理几天的数据 -->
+        <property name="timeStepSize" value="1"/>
+        <!-- 时间类型：0天，1小时(暂未处理) -->
+        <property name="timeType" value="0"/>
+	</bean>
+    
+    
+    <bean name="startRealTimeDayStatJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startRealTimeDayJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startRealTimeDayTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+         <property name="jobDetail" ref="startRealTimeDayStatJob" />
+         <property name="cronExpression" value="0 */2 * * * ?" />
+    </bean>
+
+
+
+    <!--########## 实时计算小时统计任务 ###############-->
+
+
+
+    <bean name="realTimeStatHourCalJob" class="com.voole.ad.prepare.detail.RealTimeStatHour">
+        <property name="syncFlag" value="1"/>
+        <property name="syncAliyunUtils" ref="syncAliyunUtils"/>
+    </bean>
+
+    <!-- 定时任务启动类 -->
+    <bean name="startRealTimeHourJob" class="com.voole.ad.main.StartJob">
+
+        <property name="prepareJob" ref="realTimeStatHourCalJob"/>
+
+        <!--<property name="extendOptJob" ref="syncRegInfReportExtJob"/>-->
+        <!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+        <property name="timeDelay" value="-1"/>
+        <!-- timeStepSize:步长，连续处理几天的数据 -->
+        <property name="timeStepSize" value="2"/>
+        <!-- 时间类型：0天，1小时(暂未处理) -->
+        <property name="timeType" value="1"/>
+    </bean>
+
+
+    <bean name="startRealTimeHourStatJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startRealTimeHourJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+
+    <bean id="startRealTimeHourTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+        <property name="jobDetail" ref="startRealTimeHourStatJob" />
+        <property name="cronExpression" value="0 */2 * * * ?" />
+    </bean>
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startRealTimeDayTrigger" />
+                <ref bean="startRealTimeHourTrigger" />
+
+                <!--删除Redis中key任务，配置在deljob.xml文件下-->
+                <ref bean="delRealTimeDayTrigger" />
+                <ref bean="delRealTimeHourTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

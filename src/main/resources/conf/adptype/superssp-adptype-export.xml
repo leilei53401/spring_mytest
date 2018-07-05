@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+
+    <!-- ++++++++++++++++++++++ 导出结果数据到mysql配置 +++++++++++++++++++++-->
+  
+    <!-- 
+    	多个任务配置多个 entry 节点
+     -->
+	<bean id="exportAdpTypeMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map> 
+				<entry>
+					<key>
+						<value>ad_report_adptype_area</value>
+					</key>
+					<value><![CDATA[
+						select * from ad_report_adptype_area where daytime = @yestoday
+					]]></value>
+				</entry>
+				<entry>
+					<key>
+						<value>ad_report_adptype</value>
+					</key>
+					<value><![CDATA[
+						select * from ad_report_adptype where daytime = @yestoday
+					]]></value>
+				</entry>
+				<entry>
+					<key>
+						<value>ad_report_touch_area</value>
+					</key>
+					<value><![CDATA[
+						select * from ad_report_touch_area where daytime = @yestoday
+					]]></value>
+				</entry>
+				<entry>
+					<key>
+						<value>ad_report_touch</value>
+					</key>
+					<value><![CDATA[
+						select * from ad_report_touch where daytime = @yestoday
+					]]></value>
+				</entry>
+			</map>
+		</constructor-arg>
+	</bean>
+
+  
+    <!-- 导入Oracle数据任务类 --> 
+     <bean name="exportAdpTypeJob" class="com.voole.ad.export.detail.BaseExportJob">
+      	   <property name="exportTaskMap" ref="exportAdpTypeMap" />
+      	   <property name="isSyncAliyun" value="0" />
+     </bean>
+     
+        <!-- 同步离线报表数据到阿里云平台任务 --> 
+      <bean name="syncReportDbExtJob" class="com.voole.ad.extopt.detail.SyncReportDbExtJob">
+      	  <!--  <property name="urlPrefix" value="http://platform.super-ssp.tv:8080/ssp/syncreportdata" /> -->
+      	  <property name="urlPrefix" value="http://i.super-ssp.tv:8092/rest/api/v1/syncreportdata/" />
+      	    <property name="tables" value="ad_report_adptype_area,ad_report_adptype,ad_report_touch_area,ad_report_touch" />
+     </bean>
+
+</beans>

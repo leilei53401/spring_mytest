@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	曝光离线计算基础任务入口
+        	创意，媒体，super广告位任务入口
+        -->
+
+    <bean name="flowOptCalTerminalNumJob" class="com.voole.ad.prepare.detail.FlowOptCalTerminalNumJob">
+
+     <property name="defaultFreq" value="2.5" />
+
+        <!--查询媒体排期sql语句-->
+        <property name="scanSql">
+            <value><![CDATA[
+	SELECT p.media_planid,m.mediaid,m.oemid,c.amount,p.area_flag
+FROM mediaplan p,mediaplan_cpm_link c, oem_info_map m
+WHERE  p.status = 1 AND cmpflag=1 and c.cpmtype=2
+AND p.media_planid = c.media_planid
+AND p.oemid = m.ssp_s_oemid
+AND p.startdate <='@time'
+AND p.enddate > '@time'
+        	]]></value>
+        </property>
+        <!--计算记录表-->
+        <property name="isCalSql">
+            <value><![CDATA[
+               select * from flowopt_cal_status where daytime=@daytime
+        	]]></value>
+        </property>
+        <!--区域限定信息-->
+        <property name="areaControlSql">
+            <value><![CDATA[
+               select * from mediaplan_area_link where media_planid=@mediaplanid
+        	]]></value>
+        </property>
+
+        <!--区域占比信息-->
+        <property name="areaRateSql">
+            <value><![CDATA[
+               select * from opt_area_prop where media_id=@mediaid
+        	]]></value>
+        </property>
+
+        <!--插入终端计算结果-->
+        <property name="insertCalStatusSql">
+            <value><![CDATA[
+            insert into flowopt_cal_status
+                (daytime, mediaid, oemid, planid, iscal) values (?, ?, ?, ?, ?)
+        	]]></value>
+        </property>
+        <!--插入终端计算结果-->
+        <property name="insertTermNumSql">
+            <value><![CDATA[
+            insert into flowopt_terminal_nums
+                (daytime, mediaid, oemid, planid, area_code, termial_num) values (?, ?, ?, ?, ?, ?)
+        	]]></value>
+        </property>
+
+    </bean>
+
+
+
+</beans>

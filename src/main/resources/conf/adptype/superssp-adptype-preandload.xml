@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+       <!--
+       	 将有效排期节目信息导出到本地文件并导入到hdfs对应的 hive表中
+       -->
+
+
+<!-- ++++++++++++++++++++++ 数据预处理配置 +++++++++++++++++++++-->
+        
+     <!--  有效排期节目信息本地文件路径  -->
+	<bean id="creative_filepath" class="java.lang.String">
+		<constructor-arg>
+			 <value><![CDATA[/opt/webapps/superssp_adstat/file]]></value> 
+		</constructor-arg>
+	</bean>
+             
+   	<bean id="creative_filename" class="java.lang.String">
+		<constructor-arg>
+			 <value><![CDATA[creativePlanInfo.txt]]></value> 
+		</constructor-arg>
+	</bean>
+       
+     
+    <!-- +++++++++++++++++ 查询有效排期内节目 ++++++++++++++++++++++ -->
+    
+     <bean name="prepareJob" class="com.voole.ad.prepare.detail.PrepareCreativeLifeJob">
+    	<property name="filePath" ref="creative_filepath" />
+        <property name="fileName" ref="creative_filename" />
+       <property name="preSql">
+        	<value><![CDATA[
+  SELECT creativeid,MIN(startday) startday,MAX(endday) endday
+FROM (
+SELECT  t.creativeid,
+  DATE_FORMAT(t.startdate, '%Y%m%d') startday,
+  DATE_FORMAT(t.enddate, '%Y%m%d') endday
+FROM
+  super_ssp.plan t,super_ssp.creative c
+WHERE t.`creativeid` = c.`creativeid`
+AND t.`status` = 1
+AND t.`startdate` <  DATE_ADD('@yestoday',INTERVAL 1 DAY)
+AND t.`enddate` >  '@yestoday'
+
+UNION ALL
+
+SELECT creativeid,REPLACE(c.`startdate`,'-','') startday,REPLACE(c.`enddate`,'-','') endday
+FROM super_ssp.creative c WHERE c.`status`=1   AND c.`is_adap`=1
+AND startdate <=  '@yestoday'
+AND enddate >=  '@yestoday'
+) tmp
+GROUP BY creativeid
+        	]]></value>
+        </property>
+    </bean>
+	
+   <!-- 注：仍然使用本地查询，机房定期同步阿里云数据库。  
+   <bean name="prepareJob" class="com.voole.ad.prepare.detail.PrepareGetCreativeLifeJob">
+    	<property name="filePath" ref="creative_filepath" />
+        <property name="fileName" ref="creative_filename" />
+       <property name="urlPrefix">
+        	<value><![CDATA[http://localhost:6060/adLogStatWeb/plancreatives/]]></value>
+        </property>
+    </bean> -->
+    
+    <!-- +++++++++++++++++ 定时将文件load到hdfs任务++++++++++++++++++++++ -->
+	
+    <bean name="loadJob" class="com.voole.ad.loadtohdfs.detail.LoadCreativeListToHdfs">
+        <property name="kpiType" value="loadCreativeInfo" /> 
+    	<property name="srcPath" ref="creative_filepath" />
+    	<property name="fileName" ref="creative_filename" />
+    	<property name="hadoopUser" value="root" />
+    	<property name="hdfsRootPath" value="hdfs://data-m01.super-ssp.tv:8020" />
+        <property name="dstPath">
+        	<value><![CDATA[/hive/warehouse/superssp_adstat.db/adst_creative_info]]></value>
+        </property>   
+    </bean>
+    
+
+</beans>

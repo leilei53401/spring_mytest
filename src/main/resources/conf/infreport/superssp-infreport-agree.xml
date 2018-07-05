@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	hive 离线汇聚任务: 投放日志报表汇聚
+        -->
+
+    <bean name="inf_setdynamic_nonstrict" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="inf_setdynamic_nonstrict" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+             set hive.exec.dynamic.partition.mode=nonstrict
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="inf_yestoday" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="inf_yestoday" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+            insert overwrite table superssp_inf_day PARTITION (daytime=@yestoday)
+            select oemid, count(1) pv, count(distinct mac) uv
+            from superssp_inf_log where daytime=@yestoday group by oemid
+        	]]></value>
+        </property>
+    </bean>
+
+
+<!-- ################  组织注册计算任务   ########################### -->
+   
+	<bean id="inflogAgreeTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+                <entry key="inf_setdynamic_nonstrict" value-ref="inf_setdynamic_nonstrict"/>
+                <entry key="inf_yestoday" value-ref="inf_yestoday"/>
+			</map>
+		</constructor-arg>
+	</bean>
+	    
+    <!-- hive汇聚任务类 -->
+     <bean name="inflogAggreJob" class="com.voole.ad.aggre.detail.BaseAggreJob">
+     	  <property name="agreeTaskMap" ref="inflogAgreeTaskMap" />
+     </bean>
+
+
+</beans>

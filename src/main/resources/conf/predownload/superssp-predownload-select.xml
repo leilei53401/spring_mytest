@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<!-- 查询有效预排期对应的排期的相关信息 -->
+	<bean name="preDownload" class="com.voole.ad.preplan.downloadselectmac.PreDownloadSelectMac">
+		<!--查询预排期sql语句 -->
+		<property name="refreshTable">
+			<value><![CDATA[
+			REFRESH @table
+        	]]></value>
+		</property>
+		<property name="selectPlan">
+			<value><![CDATA[
+			select a.planid planid,b.plan_name plan_name,b.plan_starttime plan_starttime,b.plan_stoptime plan_stoptime 
+from ad_guide.pre_plan a left join ad_guide.ad_plan b 
+on a.planid = b.planid where a.status = 1 and b.plan_stoptime >= '@plan_stoptime' and b.adjust = 1
+        	]]></value>
+		</property>
+		<property name="selectDetailPlan">
+			<value><![CDATA[
+			select b.planid planid,b.plan_name plan_name,b.plan_starttime plan_starttime,b.plan_stoptime plan_stoptime,
+			b.playtimesthreshold playtimesthreshold,b.areaflag areaflag,c.provinceid provinceid,c.cityid cityid,b.oemidflag oemidflag,
+			d.oemid oemid,b.playtimesflag playtimesflag,a.status status from ad_guide.pre_plan a left join ad_guide.ad_plan b on a.planid = b.planid 
+			left join ad_guide.plan_area_link c on a.planid = c.planid
+			left join ad_guide.plan_oemid_link d on a.planid = d.planid
+			where a.status = 1 
+        	]]></value>
+		</property>
+		<property name="selectDownMacGroupCity">
+			<value><![CDATA[
+			select b.cityid as cityid ,sum(b.num) playtimes from startpre.startpre_downstat_aggre a 
+left join startpre.startpre_mac_dict b on a.mac = b.mac 
+where  a.planid =@planid and a.downstatus = 1 and a.downstatus = 2  and b.tagid =@tagid 
+group by a.planid,b.cityid
+        	]]></value>
+		</property>
+		<property name="selectDownMacArea">
+			<value><![CDATA[
+			select a.mac as mac,a.mediaid as mediaid,a.provinceid as provinceid,a.cityid as cityid,a.weight as weight,
+a.num as num,a.tagid as tagid,a.oemid as oemid b.daytime daytime from startpre.startpre_mac_dict a 
+left join (select * from startpre.preplan_mac_status where daytime=@daytime and planid =@planid and status = 1 ) b 
+on a.mac = b.mac  where  b.mac is null and a.tagid = @tagid  and 
+a.oemid = @oemid and a.cityid = @cityid order by weight desc
+        	]]></value>
+		</property>
+		<property name="selectAreaProp">
+			<value><![CDATA[
+			select media_id,oemid,area_code,proportion from super_ssp.opt_area_prop 
+			where oemid = @oemid ;
+        	]]></value>
+		</property>
+	</bean>
+</beans>

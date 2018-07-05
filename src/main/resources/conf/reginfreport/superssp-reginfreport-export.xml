@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+
+    <!-- ++++++++++++++++++++++ 导出结果数据到mysql，并同步到阿里云 +++++++++++++++++++++-->
+
+    <!--
+        	hive 离线天统计任务：注册日志报表，投放日志报表
+     -->
+	<bean id="exportRegReportMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map> 
+				<entry>
+					<key>
+						<value>superssp_reg_day</value>
+					</key>
+					<value><![CDATA[
+						select * from superssp_reg_day where daytime = @yestoday and oemid in (@oemids)
+					]]></value>
+				</entry>
+
+			</map>
+		</constructor-arg>
+	</bean>
+
+    <!-- 导入 Mysql 数据任务类 -->
+     <bean name="exportRegReportJob" class="com.voole.ad.export.detail.RegInfExportJob">
+
+         <property name="oemInfoSql">
+             <value><![CDATA[
+            SELECT DISTINCT oemid FROM super_ssp.oem_info
+        	]]></value>
+         </property>
+      	   <property name="exportTaskMap" ref="exportRegReportMap" />
+     </bean>
+     
+        <!-- 同步离线报表数据到阿里云平台任务 --> 
+      <bean name="syncRegInfReportExtJob" class="com.voole.ad.extopt.detail.SyncReportDbExtJob">
+      	  <!--  <property name="urlPrefix" value="http://platform.super-ssp.tv:8080/ssp/syncreportdata" /> -->
+      	  <property name="urlPrefix" value="http://i.super-ssp.tv:8092/rest/api/v1/syncreportdata/" />
+         <!-- <property name="urlPrefix" value="http://i.super-ssp.tv:8070/rest/api/v1/syncreportdata/" />-->
+          <property name="tables" value="superssp_reg_day" />
+     </bean>
+
+</beans>

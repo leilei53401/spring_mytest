@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	1:nginx 原始日志监控
+        	2:monitor 发送监测统计
+        	3: 2018-03-14 # 增加统计oemid 粒度
+	        -->
+
+    <bean id="preSqlOem" class="java.lang.String">
+        <constructor-arg>
+            <value><![CDATA[
+				   SELECT DISTINCT t_creative.creativeid, creative_name creativename ,t_oem.oemid, t_oem.oemname
+                FROM (
+                SELECT  t.creativeid,c.`creative_name`
+                FROM
+                  super_ssp.plan t,super_ssp.creative c
+                WHERE t.`creativeid` = c.`creativeid`
+                AND t.`status` = 1
+                AND t.`startdate` <   DATE_ADD('@yestoday',INTERVAL 1 DAY)
+                AND t.`enddate` >  '@yestoday'
+                UNION ALL
+                SELECT creativeid,c.creative_name
+                FROM super_ssp.creative c WHERE c.`status`=1   AND c.`is_adap`=1
+                AND startdate <=  '@yestoday'
+                AND enddate >=  '@yestoday'
+                ) t_creative
+                LEFT JOIN
+                (SELECT   CASE WHEN p.`creativeid` IS NULL THEN
+                         (SELECT DISTINCT creativeid FROM super_ssp.project_schedule p1 WHERE p1.scheduleid = p.associated_id LIMIT 1)
+                         ELSE p.creativeid END creativeid, s.`oemid`,o.`oemname`
+		FROM
+		    super_ssp.project_schedule p, super_ssp.schedule_cpm_assign s,super_ssp.oem_info o
+		     WHERE p.scheduleid = s.scheduleid
+		     AND p.starttime <= '@yestoday' AND p.endtime >= '@yestoday'
+		     AND s.oemid = o.oemid
+                ) t_oem
+                ON t_creative.creativeid = t_oem.creativeid
+				 ]]></value>
+        </constructor-arg>
+    </bean>
+
+
+
+    <bean name="monitorNginxCreativeAndOemJob" class="com.voole.ad.file.detail.MonNginxCreativeAndOemid">
+        <property name="preSql" ref="preSqlOem" />
+        <property name="monitorPathType" value="0" />
+        <property name="monitorPath" value="/opt/webapps/backup/o/" />
+        <property name="recordPath" value="/opt/webapps/superssp_nginxstat/file/" />
+    </bean>
+	
+		<bean id="preSql" class="java.lang.String">
+			<constructor-arg>
+				<value><![CDATA[
+				  SELECT DISTINCT creativeid, creative_name creativename
+                FROM (
+                SELECT  t.creativeid,c.`creative_name`
+                FROM
+                  super_ssp.plan t,super_ssp.creative c
+                WHERE t.`creativeid` = c.`creativeid`
+                AND t.`status` = 1
+                AND t.`startdate` <  DATE_ADD('@yestoday',INTERVAL 1 DAY)
+                AND t.`enddate` >  '@yestoday'
+                UNION ALL
+                SELECT creativeid,c.creative_name
+                FROM super_ssp.creative c WHERE c.`status`=1   AND c.`is_adap` = 1
+                AND startdate <=  '@yestoday'
+                AND enddate >=  '@yestoday'
+                ) tmp
+
+				 ]]></value>
+			</constructor-arg>
+		</bean>
+        
+       <bean name="monitorNginxJob" class="com.voole.ad.file.detail.MonitoNginxLogJob">
+	      <property name="preSql" ref="preSql" />
+     	  <property name="monitorPathType" value="0" />
+     	  <property name="monitorPath" value="/opt/webapps/backup/o/" />
+     	  <property name="recordPath" value="/opt/webapps/superssp_nginxstat/file/" />
+     </bean>
+
+
+    <bean id="orgSql" class="java.lang.String">
+        <constructor-arg>
+            <value><![CDATA[
+                SELECT DISTINCT org_name FROM super_ssp.monitor_org
+				 ]]></value>
+        </constructor-arg>
+    </bean>
+
+        
+     <bean name="parseFileJob" class="com.voole.ad.file.detail.MonitoBusiJob">
+         <property name="orgSql" ref="orgSql" />
+         <property name="preSql" ref="preSql" />
+     	  <property name="monitorPathType" value="0" />
+     	  <property name="monitorPath" value="/opt/webapps/SupersspMonitorAgent/data/" />
+     	   <property name="recordPath" value="/opt/webapps/superssp_adstat/file/" />
+     	   <property name="monitorDomain">
+	        	<value><![CDATA[
+	        	fw4.co,g.dtv.cn.miaozhen.com,rt.super-ssp.tv,v.admaster.com.cn,imp.gentags.net
+	        	]]></value>
+	        </property>
+     </bean>
+    
+    <!-- 定时任务启动类 -->
+	<bean name="startJob" class="com.voole.ad.main.StartJob">
+	     <property name="parseFile" ref="monitorNginxCreativeAndOemJob" />
+	<!-- <property name="parseFile" ref="parseFileJob" /> -->
+	
+		<!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+		<property name="timeDelay" value="0" />
+		<!-- timeStepSize:步长，连续处理几天的数据 -->
+		<property name="timeStepSize" value="1" />
+		<!-- 时间类型：0天，1小时(暂未处理) -->
+		<property name="timeType" value="0" />
+	</bean>
+    
+    
+    <bean name="startAdstatJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startSynchDBTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startAdstatJob" />   
+         <property name="cronExpression" value="0 30,59 */1 * * ?" /> 
+    </bean>	    
+    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startSynchDBTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	innerssp 通过实时库存上报(如 TCL)
+        -->
+        
+     <bean name="prepareJob" class="com.voole.ad.prepare.detail.RealTimeInventoryReportJob">
+	
+     	  <property name="realtimeinventoryid" value="rti_innerssp_" />
+     	  <property name="super_ssp_url" value="http://platform.super-ssp.tv:8080/ssp/rest/api/v1/mediassp" />
+     	  <property name="preSql">
+        	<value><![CDATA[
+        		SELECT * FROM `ad_report_adptype_dayinvrt_area` t 
+        		WHERE t.oemid IN (900104101) 
+        		and starttime = '@hourtime'
+        		AND adpid<>-1 AND te=0
+        	]]></value>
+         </property>
+     </bean>
+    
+    <!-- 定时任务启动类 -->
+	<bean name="startJob" class="com.voole.ad.main.StartJob">
+	     <property name="prepareJob" ref="prepareJob" />
+		<!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+		<property name="timeDelay" value="-1" />
+		<!-- timeStepSize:步长，连续处理几天的数据 -->
+		<property name="timeStepSize" value="1" />
+		<!-- 时间类型：0天，1小时 -->
+		<property name="timeType" value="1" />
+	</bean>
+    
+    
+    <bean name="startReportInvJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startReportInvTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startReportInvJob" />   
+         <property name="cronExpression" value="30 24 */1 * * ?" /> 
+    </bean>	    
+    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startReportInvTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

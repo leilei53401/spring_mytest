@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	TCL库存明细数据上传到离线服务器任务
+        -->
+
+	<bean name="ftpClientTools" class="com.voole.ad.file.ftp.FTPClientTools">
+		<property name="host" value="172.16.42.21" />
+		<property name="port" value="21" />
+		<property name="username" value="adstate" />
+		<property name="password" value="12345678" />
+	</bean>
+
+	<bean name="uploadFileJob" class="com.voole.ad.file.detail.UploadTclInventoryFileJob">
+		<property name="ftpClientTools" ref="ftpClientTools" />
+		<property name="localPath" value="/opt/webapps/data/inventory/off" />
+		<property name="remotePath" value="/mon_inv" />
+	</bean>
+    
+    <!-- 定时任务启动类 -->
+	<bean name="startJob" class="com.voole.ad.main.StartJob">
+	     <property name="parseFile" ref="uploadFileJob" />
+		<!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+		<property name="timeDelay" value="-1" />
+		<!-- timeStepSize:步长，连续处理几天的数据 -->
+		<property name="timeStepSize" value="1" />
+		<!-- 时间类型：0天，1小时(暂未处理) -->
+		<property name="timeType" value="0" />
+	</bean>
+    
+    
+    <bean name="startAdstatJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startSynchDBTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startAdstatJob" />   
+         <property name="cronExpression" value="0 20 2,4 * * ?" /> 
+    </bean>	    
+    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startSynchDBTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

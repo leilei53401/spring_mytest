@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+         计算发送第三方告警发送任务
+        -->
+
+	<bean name="warnSendThirdJob" class="com.voole.ad.warning.WarnSendThirdAlarmJob">
+        <property name="thresholdCommonRate" value="0.05"/>
+        <property name="thresholdImportantRate" value="0.1"/>
+        <property name="thresholdEmergentRate" value="0.15"/>
+        <property name="getProjectInfoSql">
+            <value><![CDATA[
+   SELECT pp.*, c.creative_name, o.oemname
+FROM
+  ( SELECT p.projectid, p.scheduleid, p.schedule_name,
+    CASE WHEN p.`creativeid` IS NULL THEN
+       (SELECT DISTINCT creativeid FROM super_ssp.project_schedule p1 WHERE p1.scheduleid = p.associated_id LIMIT 1)
+        ELSE p.creativeid END creativeid,
+    s.oemid, s.positionid adptype, sa.cpm_amount amount
+  FROM    super_ssp.project_schedule p,    super_ssp.schedule_cpm_assign s,    super_ssp.schedule_assign_amount sa
+  WHERE p.scheduleid = s.scheduleid     AND s.assign_id = sa.schedule_id
+    AND p.starttime <= '@today'
+    AND p.endtime >= '@today'
+    AND sa.date = '@today'
+    ) pp,
+  super_ssp.creative c,
+  super_ssp.oem_info o
+WHERE pp.creativeid = c.creativeid
+  AND pp.oemid = o.oemid
+        	]]></value>
+        </property>
+        <property name="getRealValueSql">
+            <value><![CDATA[
+     SELECT tin.creativeid, SUM(playnum) playnum
+    FROM (
+	    SELECT t.oemid ,t.creativeid,t.adptype,MAX(playnum) playnum
+	    FROM super_ssp_report.ad_adptype_oemid_dayrt_v2 t
+	    WHERE t.last_update >= '@starttime' AND t.last_update<'@endtime'
+	    AND t.creativeid in (@creativeids)
+	    AND te=0
+	    GROUP BY t.creativeid,t.oemid,t.adptype
+    ) tin
+    GROUP BY tin.creativeid
+        	]]></value>
+        </property>
+        <property name="sendThirdValueSql">
+            <value><![CDATA[
+SELECT creativeid,SUM(daynum) playnum
+FROM
+(
+SELECT t.`creativeid`,monitorhost,MAX(sendnum_byday) daynum
+FROM super_ssp_report.ad_report_sendcount t
+WHERE  t.`creativeid` in (@creativeids)
+AND stamp >= '@starttime'
+AND stamp <= '@endtime'
+GROUP BY t.`creativeid`,monitorhost
+) s
+GROUP BY s.creativeid
+        	]]></value>
+        </property>
+        <property name="insertAlarmInfoSql">
+            <value><![CDATA[
+ insert into monitor_alarm
+                (projectid, oemid, adptype, daytime, moment,alarmtext,levelid,linkman)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
+        	]]></value>
+            <!--告警通知角色 1,4-->
+        </property>
+	</bean>
+    
+    
+    <bean name="warnSendThirdDetail" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="warnSendThirdJob" />
+        <property name="targetMethod" value="sendAlarm" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="warnSendThirdTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+         <property name="jobDetail" ref="warnSendThirdDetail" />
+         <property name="cronExpression" value="0 2/30 1-23 * * ?" />
+    </bean>	    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="warnSendThirdTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

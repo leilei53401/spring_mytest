@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	innerssp 库存上报(apk库存上报)修改为离线上报
+        -->
+        
+   <!-- ################ hive库存计算任务 ######################### -->
+   
+   <bean name="task_invreport" class="com.voole.ad.aggre.detail.InvReportAggreTask" >
+      	 <property name="taskId" value="task_invreport" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			INSERT OVERWRITE TABLE ad_report_inv PARTITION (hourtime=@hourtime) 
+select mediaid, oemid, adptype, adpid, provinceid, cityid, te, count(1) playnum, 0 as devnum
+from superssp_adstat_inv t
+where daytime=@today 
+and hourtime<=@lasthour
+and te=0
+and oemid in (900000101,
+              900109101,900109102,900109103,900109104,900109105,900109106,900109107,900109108,900109109,900109110,900109111,900109112,900109113)
+group by mediaid, oemid, adptype, adpid, provinceid, cityid, te
+        	]]></value>
+        </property>
+   </bean>
+   
+   <bean id="invTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+				<entry key="task_invreport" value-ref="task_invreport" />
+			</map>
+		</constructor-arg>
+	</bean>
+   
+   
+     <bean name="invAggreJob" class="com.voole.ad.aggre.detail.BaseAggreJob">
+     	  <property name="agreeTaskMap" ref="invTaskMap" />
+     </bean>
+     
+     
+     <!-- ################ 库存上报任务 ######################### -->
+     
+     <bean name="invReportJob" class="com.voole.ad.extopt.detail.InnerSspInventoryReportJob">
+	
+     	  <property name="realtimeinventoryid" value="rti_innerssp_" />
+     	  <property name="super_ssp_url" value="http://i.super-ssp.tv:8092/rest/api/v1/mediassp" />
+     	  <property name="preSql">
+        	<value><![CDATA[
+        		SELECT * FROM ad_report_inv t WHERE  hourtime = @hourtime
+        	]]></value>
+         </property>
+     </bean>
+    
+    <!-- 定时任务启动类 -->
+	<bean name="startJob" class="com.voole.ad.main.StartJob">
+	     <property name="hiveAggreJob" ref="invAggreJob" />
+		<property name="extendOptJob" ref="invReportJob" />
+		<!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+		<property name="timeDelay" value="-1" />
+		<!-- timeStepSize:步长，连续处理几天的数据 -->
+		<property name="timeStepSize" value="1" />
+		<!-- 时间类型：0天，1小时 -->
+		<property name="timeType" value="1" />
+	</bean>
+    
+    
+    <bean name="startReportInvJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startReportInvTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startReportInvJob" />   
+         <property name="cronExpression" value="30 24 */1 * * ?" /> 
+    </bean>	    
+    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+         <!--    <ref bean="startReportInvTrigger" /> -->
+                 <ref bean="startInvDayAggreTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

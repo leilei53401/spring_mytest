@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+
+    <!-- ++++++++++++++++++++++ 导出结果数据到mysql，并同步到阿里云 +++++++++++++++++++++-->
+
+    <!--
+        	hive 离线汇聚任务
+        	###################### (终端上报，局域网等信息) #########################
+			#
+		    c:终端信息上报
+        	d:卡顿汇报
+        	e:局域网信息
+        	f:投屏信息
+			#
+			########################################################################
+        -->
+	<bean id="exportMonReportMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map> 
+				<entry>
+					<key>
+						<value>ad_report_terminal_day</value>
+					</key>
+					<value><![CDATA[
+						select * from ad_report_terminal_day where daytime = @yestoday
+					]]></value>
+				</entry>
+				<entry>
+					<key>
+						<value>ad_report_playlag_day</value>
+					</key>
+					<value><![CDATA[
+						select * from ad_report_playlag_day where daytime = @yestoday
+					]]></value>
+				</entry>
+				<entry>
+					<key>
+						<value>ad_report_lan_day</value>
+					</key>
+					<value><![CDATA[
+						select * from ad_report_lan_day where daytime = @yestoday
+					]]></value>
+				</entry>
+				<entry>
+					<key>
+						<value>ad_report_projection_day</value>
+					</key>
+					<value><![CDATA[
+						select * from ad_report_projection_day where daytime = @yestoday
+					]]></value>
+				</entry>
+			</map>
+		</constructor-arg>
+	</bean>
+
+    <!-- 导入 Mysql 数据任务类 -->
+     <bean name="exportMonReportJob" class="com.voole.ad.export.detail.BaseExportJob">
+      	   <property name="exportTaskMap" ref="exportMonReportMap" />
+
+     </bean>
+     
+        <!-- 同步离线报表数据到阿里云平台任务 --> 
+      <bean name="syncMonReportExtJob" class="com.voole.ad.extopt.detail.SyncReportDbExtJob">
+      	  <!--  <property name="urlPrefix" value="http://platform.super-ssp.tv:8080/ssp/syncreportdata" /> -->
+      	  <property name="urlPrefix" value="http://i.super-ssp.tv:8092/rest/api/v1/syncreportdata/" />
+         <!-- <property name="urlPrefix" value="http://i.super-ssp.tv:8070/rest/api/v1/syncreportdata/" />-->
+          <property name="tables" value="ad_report_terminal_day,ad_report_playlag_day,ad_report_lan_day,ad_report_projection_day" />
+     </bean>
+
+</beans>

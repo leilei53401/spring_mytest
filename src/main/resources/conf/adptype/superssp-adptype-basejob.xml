@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	曝光离线计算基础任务入口
+        	创意，媒体，super广告位任务入口
+        -->
+
+    <!-- 定时任务启动类 -->
+	<bean name="startJob" class="com.voole.ad.main.StartJob">
+	     <property name="prepareJob" ref="prepareJob" /> 
+		<property name="loadJob" ref="loadJob" /> 
+		<property name="hiveAggreJob" ref="hiveAggreJob" />
+		<property name="exportJob" ref="exportAdpTypeJob" />  
+		<property name="extendOptJob" ref="syncReportDbExtJob" /> 
+		<!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+		<property name="timeDelay" value="-1" />
+		<!-- timeStepSize:步长，连续处理几天的数据 -->
+		<property name="timeStepSize" value="1" />
+		<!-- 时间类型：0天，1小时(暂未处理) -->
+		<property name="timeType" value="0" />
+	</bean>
+    
+    
+    <bean name="startAdstatJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startAdstatTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startAdstatJob" />   
+         <property name="cronExpression" value="10 59 */1 * * ?" /> 
+    </bean>	    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startAdstatTrigger" />
+                <!--<ref bean="startKonkaTrigger" />-->
+            </list>
+        </property>
+    </bean>
+
+</beans>

@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:util="http://www.springframework.org/schema/util"
+	xmlns:jee="http://www.springframework.org/schema/jee" xmlns:aop="http://www.springframework.org/schema/aop"
+	xmlns:tx="http://www.springframework.org/schema/tx" xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:p="http://www.springframework.org/schema/p" xmlns:cache="http://www.springframework.org/schema/cache"
+	xmlns:task="http://www.springframework.org/schema/task"
+	xsi:schemaLocation="
+	http://www.springframework.org/schema/task 
+	http://www.springframework.org/schema/task/spring-task-4.1.xsd
+	http://www.springframework.org/schema/beans
+	http://www.springframework.org/schema/beans/spring-beans-4.1.xsd
+	http://www.springframework.org/schema/aop 
+	http://www.springframework.org/schema/aop/spring-aop-4.1.xsd
+	http://www.springframework.org/schema/tx
+	http://www.springframework.org/schema/tx/spring-tx-4.1.xsd
+	http://www.springframework.org/schema/context
+	http://www.springframework.org/schema/context/spring-context-4.1.xsd
+	http://www.springframework.org/schema/util 
+	http://www.springframework.org/schema/util/spring-util-4.1.xsd
+	http://www.springframework.org/schema/cache http://www.springframework.org/schema/cache/spring-cache-4.1.xsd">
+	
+	<bean id="appContextAware" class="com.voole.ad.utils.AppContextAware" />
+	
+	<!--
+		创建分区定时任务-->
+<!--	<import resource="classpath:./conf/spring-createpartition-task.xml"/>-->
+	
+	
+	
+	<!-- ########### 离线计算任务xml配置(superssp广告位) ########### -->
+	
+<!-- 	<import resource="classpath:./conf/adptype/superssp-adptype-preandload.xml"/>  
+ 	<import resource="classpath:./conf/adptype/superssp-adptype-agree.xml"/>  
+	<import resource="classpath:./conf/adptype/superssp-adptype-export.xml"/>  
+	<import resource="classpath:./conf/adptype/superssp-adptype-basejob.xml"/>   -->
+
+    <!-- ###########  redis集群配置 ################# -->
+    <import resource="classpath:./conf/spring-redisCluster.xml"/>
+
+
+    <bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
+        <property name="locations">
+            <list>
+                <value>classpath:./conf/db.properties</value>
+                <value>classpath:./conf/applicationConfig.properties</value>
+                <value>classpath:./conf/redisCluster.properties</value>
+            </list>
+        </property>
+    </bean>
+
+        <!-- 配置ad_guide数据源 -->
+	<bean id="adSuperssp" class="com.alibaba.druid.pool.DruidDataSource" destroy-method="close"  scope="prototype">
+	    <property name="driverClassName" value="${driverClassName}"/>
+	    <property name="url" value="${adSuperssp_url}"/>
+	    <property name="username" value="${adSuperssp_username}"/>
+	    <property name="password" value="${adSuperssp_password}"/>
+	    <!--initialSize: 初始化连接-->  
+		<property name="initialSize" value="10"/>  
+		<!--minIdle: 最小空闲连接-->  
+		<property name="minIdle" value="10"/>  
+		<!--maxActive: 最大连接数量-->  
+		<property name="maxActive" value="50"/>
+		<!--maxWait: 当没有可用连接时，连接池等待连接释放的最大时间,单位：ms-->  
+		<property name="maxWait" value="60000"/>
+		<!--默认从连接池取连接时检测其可用性，放回连接池时不做监测-->
+		<property name="validationQuery" value="SELECT 1" />
+		<property name="testWhileIdle"><value>true</value></property>
+		<!-- 申请时判定 -->
+     	<property name="testOnBorrow"><value>false</value></property>
+		<!-- 返回时判定 -->
+     	<property name="testOnReturn"><value>false</value></property>
+        <property name="filters" value="stat" />  
+    </bean>
+    <!-- 配置ad_guide数据源结束 -->
+    
+    <!-- hive 数据源 -->
+	<bean id="hiveDataSource" class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" >
+		<property name="driverClassName">
+			<value>org.apache.hive.jdbc.HiveDriver</value>
+		</property>
+		<property name="url">
+			<value>${hive.linkurl}</value>
+		</property>
+		<property name="username">
+			<value>${hive.user}</value>
+		</property>
+		<property name="password">
+			<value>${hive.password}</value>
+		</property>
+		<property name="maxActive" value="100" />
+		<property name="minIdle" value="20" />
+		<property name="maxIdle" value="80" />
+		<!--maxWait: 当没有可用连接时，连接池等待连接释放的最大时间,单位：ms-->  
+		<property name="maxWait" value="60000"/>
+		<property name="validationQuery" value="select 1"/>
+		<property name="testOnBorrow" value="true"/>
+		<property name="testOnReturn" value="true"/>
+		<property name="testWhileIdle" value="true"/>
+		<property name="defaultAutoCommit" value="false"></property>
+	</bean>
+
+	 <!--Impala 数据源 -->
+	<bean id="impalaDataSource" class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" >
+		<property name="driverClassName">
+			<value>${impalaDriverClassName}</value>
+		</property>
+		<property name="url">
+			<value>${impalaConnetUrl}</value>
+		</property>
+		<property name="maxActive" value="100" />
+		<property name="minIdle" value="20" />
+		<property name="maxIdle" value="80" />
+		<!-- maxWait: 当没有可用连接时，连接池等待连接释放的最大时间,单位：ms -->
+		<property name="maxWait" value="60000"/>
+		<property name="validationQuery" value="select 1"/>
+		<property name="testOnBorrow" value="true"/>
+		<property name="testOnReturn" value="true"/>
+		<property name="testWhileIdle" value="true"/>
+		<property name="defaultAutoCommit" value="false"></property>
+	</bean>
+
+	<bean id="impalaJt" class="org.springframework.jdbc.core.JdbcTemplate">
+		<property name="dataSource" ref="impalaDataSource" />
+	</bean>
+
+	<bean id="hiveJt" class="org.springframework.jdbc.core.JdbcTemplate">
+		<property name="dataSource" ref="hiveDataSource" />
+	</bean>
+	
+	
+	<bean id="adSupersspJt" class="org.springframework.jdbc.core.JdbcTemplate">
+		<property name="dataSource" ref="adSuperssp" />
+	</bean>
+	
+ 	<bean id="dynamicDataSource" class="com.voole.ad.utils.datasource.DynamicDataSource">  
+		<property name="targetDataSources">  
+			<map>
+				 <entry key="adguide" value-ref="adSuperssp"/>
+			</map>  
+		</property>  
+		<property name="defaultTargetDataSource" ref="adSuperssp" />  
+	</bean>  
+	
+	 <!-- 事务管理器 -->
+    <bean id="transactionManager"
+        class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+        <property name="dataSource" ref="adSuperssp" />
+    </bean>
+    
+    <tx:annotation-driven transaction-manager="transactionManager" />
+	
+	<!-- 配置SQLSessionFactory 
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean" lazy-init="true">
+	   <property name="configLocation" value="sqlMapConfig.xml"/>
+	   <property name="mapperLocations"  
+              value="classpath:com/voole/ad/model/sqlxml/*.xml" /> 
+	   <property name="dataSource" ref="dynamicDataSource" />
+	</bean>
+	-->
+	
+	<context:component-scan base-package="com.voole.ad" />
+	<aop:aspectj-autoproxy proxy-target-class="true"/> 
+     
+	<!-- 加载applicationConfig.properties文件，获取属性文件的内容-->
+	<bean id="propertyConfigurer" class="com.voole.ad.utils.GlobalProperties">
+		<property name="ignoreResourceNotFound" value="true" />
+		<property name="locations">
+			<list>
+				<value>classpath:./conf/applicationConfig.properties</value>
+				<value>classpath:./conf/adstat.properties</value>
+                <value>classpath:./conf/redisCluster.properties</value>
+			</list>
+		</property>
+	</bean>
+
+</beans>

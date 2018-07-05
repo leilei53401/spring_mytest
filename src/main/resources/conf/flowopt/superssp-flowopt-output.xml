@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <!--
+        流量优化终端输出任务
+    -->
+
+    <bean name="flowOptOutPutJob" class="com.voole.ad.extopt.detail.FlowOptOutPutJob">
+
+<!--
+        private String getTermNumsSql; //获取要计算的量
+        private  String outPutTermNumsSql; //输出数据sql
+        private String outPutPath; //输出路径
+-->
+        <!--获取要输出的终端个数-->
+        <property name="getTermNumsSql">
+            <value><![CDATA[
+select mediaid,area_code,sum(termial_num) termial_num from
+flowopt_terminal_nums
+where daytime=@daytime
+and mediaid=@mediaid
+group by mediaid,area_code
+        	]]></value>
+        </property>
+        <!--输出终端-->
+        <property name="outPutTermNumsSql">
+            <value><![CDATA[
+select * from (
+select *,row_number() over (partition by mac order by ip asc) num
+from flow_opt_base
+where p_mediaid=@mediaid and p_provinceid=@provinceid and cityid=@cityid
+order by weight desc
+) tmp
+where tmp.num=1
+        	]]></value>
+        </property>
+
+        <property name="outPutPath">
+            <value><![CDATA[/opt/addata/hid/]]></value>
+        </property>
+        <!--生成出多少天的数据-->
+        <property name="stepSize" value="5"/>
+    </bean>
+</beans>

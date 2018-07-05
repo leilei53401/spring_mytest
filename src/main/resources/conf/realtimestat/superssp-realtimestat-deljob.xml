@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	实时计算统计删除Redis集群中key值任务
+        -->
+
+
+
+    <!--########## 删除天Key值任务 ###############-->
+
+    <bean name="delRTDayKeyExeJob" class="com.voole.ad.prepare.detail.RealTimeDelDayKey">
+        <!--单位：天-->
+        <property name="keepSize" value="1"/>
+    </bean>
+
+    <!-- 定时任务启动类 -->
+	<bean name="delRTDayKeyStartJob" class="com.voole.ad.main.StartJob">
+
+        <property name="prepareJob" ref="delRTDayKeyExeJob"/>
+
+        <!--<property name="extendOptJob" ref="syncRegInfReportExtJob"/>-->
+        <!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+        <property name="timeDelay" value="0"/>
+        <!-- timeStepSize:步长，连续处理几天的数据 -->
+        <property name="timeStepSize" value="1"/>
+        <!-- 时间类型：0天，1小时(暂未处理) -->
+        <property name="timeType" value="0"/>
+	</bean>
+    
+    
+    <bean name="delRTDayKeyQuartzJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="delRTDayKeyStartJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="delRealTimeDayTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+         <property name="jobDetail" ref="delRTDayKeyQuartzJob" />
+         <property name="cronExpression" value="0 28 14 * * ?" />
+    </bean>
+
+
+    <!--########## 删除小时key值任务 ###############-->
+
+
+    <bean name="delRTHourKeyExeJob" class="com.voole.ad.prepare.detail.RealTimeDelHourKey">
+        <!--注：单位为小时-->
+        <property name="keepSize" value="10"/>
+    </bean>
+
+    <!-- 定时任务启动类 -->
+    <bean name="delRTHourKeyStartJob" class="com.voole.ad.main.StartJob">
+
+        <property name="prepareJob" ref="delRTHourKeyExeJob"/>
+
+        <!--<property name="extendOptJob" ref="syncRegInfReportExtJob"/>-->
+        <!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+        <property name="timeDelay" value="0"/>
+        <!-- timeStepSize:步长，连续处理几天的数据 -->
+        <property name="timeStepSize" value="1"/>
+        <!-- 时间类型：0天，1小时(暂未处理) -->
+        <property name="timeType" value="1"/>
+    </bean>
+
+
+    <bean name="delRealTimeHourQuartzJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="delRTHourKeyStartJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+
+    <bean id="delRealTimeHourTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+        <property name="jobDetail" ref="delRealTimeHourQuartzJob" />
+        <property name="cronExpression" value="0 5 14 * * ?" />
+    </bean>
+    
+    <!-- 启动调度器 （同统计任务部署在一起时，配置到basejob文件下）
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="delRealTimeDayTrigger" />
+                <ref bean="delRealTimeHourTrigger" />
+            </list>
+        </property>
+    </bean>
+    -->
+
+</beans>

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+       <!--
+       	监测汇报处理
+       		c:终端信息上报
+        	d:卡顿汇报
+        	e:局域网信息
+        	f:投屏信息
+        	g:预下载汇报#20180130
+       -->
+       <!-- c:终端信息上报 -->
+	<bean name="terminalFileTask" class="com.voole.ad.file.monitorreport.BaseMonitorReportTask">
+		<property name="taskId" value="terminalFileTask" />
+		<property name="localPath" value="/opt/webapps/splitlog/c/" />
+		<property name="backupPath" value="/opt/webapps/superssp_monitorreport/file/c/" />
+		<property name="parseKeys" value="starttime,a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t" />
+	</bean>
+	<!-- d:卡顿汇报 -->
+	<bean name="pauseFileTask" class="com.voole.ad.file.monitorreport.BaseMonitorReportTask">
+		<property name="taskId" value="pauseFileTask" />
+		<property name="localPath" value="/opt/webapps/splitlog/d/" />
+		<property name="backupPath" value="/opt/webapps/superssp_monitorreport/file/d/" />
+		<property name="parseKeys" value="starttime,a,b,c,d,e" />
+	</bean>
+	<!-- e:局域网信息 -->
+	<bean name="lanFileTask" class="com.voole.ad.file.monitorreport.BaseMonitorReportTask">
+		<property name="taskId" value="lanFileTask" />
+		<property name="localPath" value="/opt/webapps/splitlog/e/" />
+		<property name="backupPath" value="/opt/webapps/superssp_monitorreport/file/e/" />
+		<property name="parseKeys" value="starttime,a,b,c,d,e" />
+	</bean>
+	<!-- f:投屏信息 -->
+	<bean name="projectionFileTask" class="com.voole.ad.file.monitorreport.BaseMonitorReportTask">
+		<property name="taskId" value="projectionFileTask" />
+		<property name="localPath" value="/opt/webapps/splitlog/f/" />
+		<property name="backupPath" value="/opt/webapps/superssp_monitorreport/file/f/" />
+		<property name="parseKeys" value="starttime,a,b,c,d,e" />
+	</bean>
+
+    <!--20180130  g:预下载成功状体汇报 -->
+    <bean name="predownreport" class="com.voole.ad.file.monitorreport.BaseMonitorReportTask">
+        <property name="taskId" value="projectionFileTask" />
+        <property name="localPath" value="/opt/webapps/splitlog/g/" />
+        <property name="backupPath" value="/opt/webapps/superssp_monitorreport/file/g/" />
+        <property name="parseKeys" value="starttime,b,c,d,e,f,g" />
+    </bean>
+
+
+	<bean id="monitorReportTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+				<entry key="terminalFileTask" value-ref="terminalFileTask" />
+				<entry key="pauseFileTask" value-ref="pauseFileTask" />
+				<entry key="lanFileTask" value-ref="lanFileTask" />
+				<entry key="projectionFileTask" value-ref="projectionFileTask" />
+                <entry key="predownreport" value-ref="predownreport" />
+			</map>
+		</constructor-arg>
+	</bean>
+	
+     <bean name="parseReportFileJob" class="com.voole.ad.file.monitorreport.MonitorReportBaseJob">
+     	  <property name="monitorReportTaskMap" ref="monitorReportTaskMap" />
+     </bean>
+    
+</beans>

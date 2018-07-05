@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	预警计算真实占比，预估占比，预估数据任务
+        -->
+
+     <!--计算真实占比数据-->
+    <bean name="warnRealRateJob" class="com.voole.ad.warning.WarnRealRateJob">
+    <!--获取当日有效排期下创意-->
+        <property name="getValidCreativeInPlan">
+            <value><![CDATA[
+  SELECT distinct creativeid
+FROM (
+SELECT  t.creativeid,
+  DATE_FORMAT(t.startdate, '%Y%m%d') startday,
+  DATE_FORMAT(t.enddate, '%Y%m%d') endday
+FROM
+  super_ssp.plan t,super_ssp.creative c
+WHERE t.`creativeid` = c.`creativeid`
+AND t.`status` = 1
+AND t.`startdate` <  DATE_ADD('@yestoday',INTERVAL 1 DAY)
+AND t.`enddate` >  '@yestoday'
+
+UNION ALL
+
+SELECT creativeid,REPLACE(c.`startdate`,'-','') startday,REPLACE(c.`enddate`,'-','') endday
+FROM super_ssp.creative c WHERE c.`status`=1   AND c.`is_adap`=1
+AND startdate <=  '@yestoday'
+AND enddate >=  '@yestoday'
+) tmp
+        ]]></value>
+        </property>
+        <!--//获取曝光具体值-->
+        <property name="getRealValueSql">
+            <value><![CDATA[
+   SELECT t.oemid ,t.creativeid,t.adptype,MAX(playnum) playnum,MAX(devnum) devnum
+    FROM super_ssp_report.ad_adptype_oemid_dayrt_v2 t
+    WHERE t.last_update >= '@starttime' AND t.last_update<'@endtime'
+    AND t.creativeid in (@creatives)
+    AND t.mediaid<>-1 AND t.adptype<>-1
+    AND te=0
+    GROUP BY t.oemid,t.creativeid,t.adptype
+        	]]></value>
+        </property>
+
+        <property name="insertRealRateSql">
+            <value><![CDATA[
+    insert into monitor_proportion_real
+                (oemid, creativeid, mediaid, adptype, daytime, moment, proportion) values (?, ?, ?, ?, ?, ?, ?)
+        	]]></value>
+        </property>
+
+    </bean>
+    <!--计算预警占比数据和占比值-->
+    <bean name="warnCalRateJob" class="com.voole.ad.warning.WarnCalRateJob">
+        <property name="getProjectInfoSql">
+            <value><![CDATA[
+            SELECT p.projectid, p.creativeid, s.oemid, s.positionid adptype, sa.cpm_amount amount
+  FROM   super_ssp.project_schedule p, super_ssp.schedule_cpm_assign s, super_ssp.schedule_assign_amount sa
+    WHERE p.scheduleid = s.scheduleid AND s.assign_id = sa.schedule_id
+    AND p.starttime <= '@today' AND p.endtime >= '@today'
+    AND sa.date = '@today'
+        	]]></value>
+        </property>
+        <property name="getRealProportionSql">
+            <value><![CDATA[
+ SELECT oemid, adptype ,avg(proportion)  proportion
+    FROM monitor_proportion_real t WHERE  t.daytime >= @starttime AND t.daytime <= @endtime
+    and RIGHT(t.moment, 6) = @parttime
+AND t.oemid = @oemid AND t.adptype = @adptype
+group by oemid, adptype
+        	]]></value>
+        </property>
+        <property name="getEstimateProportionSql">
+            <value><![CDATA[
+ SELECT oemid, adptype ,avg(proportion)  proportion
+    FROM monitor_proportion_estimate t WHERE  t.daytime >= @starttime AND t.daytime <= @endtime
+    and t.moment = @moment
+    AND t.oemid = @oemid AND t.adptype = @adptype
+    group by oemid, adptype
+        	]]></value>
+        </property>
+        <property name="insertEstimateProportionSql">
+            <value><![CDATA[
+     insert into monitor_proportion_estimate
+                (oemid, mediaid, adptype, daytime, moment, proportion) values (?, ?, ?, ?, ?, ?)
+        	]]></value>
+        </property>
+        <property name="insertEstimateValueSql">
+            <value><![CDATA[
+   insert into monitor_threshold_estimate
+                (projectid, oemid, mediaid, creativeid, adptype, daytime, moment, esvalue) values (?, ?, ?, ?, ?, ?, ?, ?)
+        	]]></value>
+        </property>
+    </bean>
+
+    <!-- 定时任务启动类 -->
+	<bean name="startEstimateCalJob" class="com.voole.ad.main.StartWarningJob">
+
+        <property name="warnRealRateJob" ref="warnRealRateJob"/>
+        <property name="warnCalRateJob" ref="warnCalRateJob"/>
+
+        <!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+        <property name="timeDelay" value="-1"/>
+        <!-- timeStepSize:步长，连续处理几天的数据 -->
+        <property name="timeStepSize" value="1"/>
+        <!-- 时间类型：0天，1小时(暂未处理) -->
+        <property name="timeType" value="0"/>
+	</bean>
+    
+    
+    <bean name="startEstimateJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startEstimateCalJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startEstimateTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+         <property name="jobDetail" ref="startEstimateJob" />
+         <property name="cronExpression" value="30 48 16 * * ?" />
+    </bean>	    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startEstimateTrigger" />
+
+                <!--告警发送任务 warning-sendalarm-basejob.xml -->
+            <!-- <ref bean="warnSendTrigger" /> -->
+
+            </list>
+        </property>
+        <property name="quartzProperties">
+            <props>
+                <!-- 主要是这个参数 -->
+                <prop key="org.quartz.scheduler.skipUpdateCheck">true</prop>
+            </props>
+        </property>
+    </bean>
+
+</beans>

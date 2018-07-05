@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<!-- 查询有效预排期对应的排期的相关信息 -->
+	<bean name="realtimeSelect" class="com.voole.ad.preplan.realtimeselect.RealtimeSelectMac">
+	<property name="realtimeAlarm" ref="realtimeAlarm" />
+		<!--查询预排期sql语句 -->
+		<property name="refreshTable">
+			<value><![CDATA[
+			REFRESH @table
+        	]]></value>
+		</property>
+		<property name="selectPrePlanInfo">
+			<value><![CDATA[
+			select pre.planid,pre.preplan_starttime,pre.preplan_stoptime,ad.areaflag,ad.oemidflag,ad.playtimesthreshold,ad.playtimesflag,
+			o.oemid,ar.provinceid,ar.cityid
+			from ad_guide.pre_plan pre 
+  			left join ad_guide.ad_plan ad 
+    		on pre.planid = ad.planid 
+  			left join ad_guide.plan_oemid_link o 
+    		on ad.planid = o.planid
+    		left join ad_guide.plan_area_link ar
+    		on ad.planid = ar.planid
+    		where  pre.planid = @planid
+    		and pre.status != 0 
+    		and o.oemid = @oemid
+        	]]></value>
+		</property>
+		<property name="selectAddMacArea">
+			<value><![CDATA[
+			select a.mac as mac,a.mediaid as mediaid,a.cityid as cityid,a.weight as weight,
+			a.num as num,a.tagid as tagid,a.oemid as oemid from startpre.startpre_mac_dict a left join 
+			(select * from startpre.preplan_mac_status where daytime=@daytime and planid=@planid and status = 1 ) b 
+			on a.mac = b.mac  where  b.mac is null and a.tagid = @tagid  and 
+			a.oemid = @oemid and a.cityid = @cityid and a.num >= 2 order by weight desc
+        	]]></value>
+		</property>
+		<property name="selectDelMacArea">
+			<value><![CDATA[
+			select a.mac as mac,a.mediaid as mediaid,a.cityid as cityid,a.weight as weight,
+			a.num as num,a.tagid as tagid,a.oemid as oemid from startpre.startpre_mac_dict a left join 
+			(select * from startpre.preplan_mac_status where daytime=@daytime and planid = @planid and status = 1 ) b 
+			on a.mac = b.mac  where  a.tagid = @tagid  and 
+			a.oemid = @oemid and a.cityid = @cityid  order by weight desc
+        	]]></value>
+		</property>
+		<property name="selectAreaProp">
+			<value><![CDATA[
+			select media_id,oemid,area_code,proportion from super_ssp.opt_area_prop 
+			where oemid = @oemid;
+        	]]></value>
+		</property>
+	</bean>
+</beans>

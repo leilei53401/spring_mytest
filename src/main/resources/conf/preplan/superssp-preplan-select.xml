@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+    <bean id="mac_filepath" class="java.lang.String">
+		<constructor-arg>
+			 <value><![CDATA[/opt/preplandata]]></value> 
+			 <!-- <value><![CDATA[E:\tmp]]></value>  -->
+		</constructor-arg>
+	</bean>
+    <bean name="storeMacRredis" class="com.voole.ad.preplan.common.StoreMacRredis">
+		<property name="srcPath" ref="mac_filepath" />
+		<property name="combMacServiceImp" ref="combTable" />
+		<property name="hadoopUser" value="root" />
+    	<property name="hdfsRootPath" value="hdfs://Cloudera-Master:8020" />
+        <property name="dstPath">
+        	<value><![CDATA[/hive/warehouse/startpre.db/tmp_preplan_mac_status]]></value>
+        </property>  
+	</bean>
+	<!-- 查询有效预排期对应的排期的相关信息 -->
+	<bean name="selectPrePlanMac" class="com.voole.ad.preplan.selectmac.PrePlanMac">
+	<property name="storeMacToRredis" ref="storeMacRredis" />
+		<!--查询预排期sql语句 -->
+		<property name="refreshTable">
+			<value><![CDATA[
+			REFRESH @table
+        	]]></value>
+		</property>
+		<property name="selectPlan">
+			<value><![CDATA[
+			select b.planid planid,b.plan_name plan_name,b.plan_starttime plan_starttime,b.plan_stoptime plan_stoptime,
+			b.playtimesthreshold playtimesthreshold,b.areaflag areaflag,b.is_rt is_rt, c.provinceid provinceid,c.cityid cityid,b.oemidflag oemidflag,
+			d.oemid oemid,b.playtimesflag playtimesflag,a.status status from ad_guide.pre_plan a left join ad_guide.ad_plan b on a.planid = b.planid 
+			left join ad_guide.plan_area_link c on a.planid = c.planid
+			left join ad_guide.plan_oemid_link d on a.planid = d.planid
+			where a.status = 1 and b.plan_stoptime >= '@plan_stoptime' and  b.adjust is null or b.adjust =0 and b.is_rt =0
+        	]]></value>
+		</property>
+		<property name="selectStorePlan">
+			<value><![CDATA[
+			SELECT b.planid planid,b.plan_name plan_name,b.plan_starttime plan_starttime,b.plan_stoptime plan_stoptime,
+  			a.status STATUS,b.adjust 
+			FROM
+  				ad_guide.pre_plan a 
+  			LEFT JOIN ad_guide.ad_plan b ON a.planid = b.planid 
+			WHERE a.status = 1
+			AND b.plan_stoptime >= '@plan_stoptime'
+  			AND b.adjust = 1
+        	]]></value>
+		</property>
+		
+		<property name="selectAreaProp">
+			<value><![CDATA[
+			select media_id,oemid,area_code,proportion from super_ssp.opt_area_prop 
+			where oemid = @oemid ;
+        	]]></value>
+		</property>
+		<property name="selectMacO">
+			<value><![CDATA[
+			select a.mac as mac,a.mediaid as mediaid,a.provinceid as provinceid,a.cityid as cityid,
+			 a.weight as weight,a.num as num,a.tagid as tagid,a.oemid as oemid from startpre.startpre_mac_dict a left join 
+			(select * from startpre.preplan_mac_status where daytime=@daytime and status = 1 ) b 
+			on a.mac = b.mac  where  b.mac is null and a.tagid = @tagid  and 
+			a.oemid = @oemid and a.provinceid = @provinceid and a.cityid = @cityid order by weight desc
+        	]]></value>
+		</property>
+		<property name="updateAdplan">
+			<value><![CDATA[
+			update ad_guide.ad_plan set adjust = 1 where planid=@planid
+        	]]></value>
+		</property>
+	</bean>
+</beans>

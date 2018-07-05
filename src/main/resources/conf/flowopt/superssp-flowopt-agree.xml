@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <!--
+        流量优化终端计算任务
+        ###################### (分创意，媒体，super广告位任务) #########################
+        #
+        # 0) 备份原有数据
+        # 1) 获取共有的并增加权重值，暂存
+        # 2) 获取基础数据表有，但曝光表里没有的数据，暂存， 权重不变
+        # 3) 获取曝光表里有，但基础数据里没有的数据，权重为1，暂存，
+        # 4) 合并三张表，更新到基础数据表中。
+        #
+        ########################################################################
+    -->
+    <!-- ################  配置计算任务开始  ########################### -->
+    <!-- 0) 备份原有数据 -->
+    <bean name="flowopt_basebak" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_basebak" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table flow_opt_base_bak PARTITION (p_mediaid, p_provinceid)
+SELECT mac,ip,mediaid,oemid,provinceid,cityid,weight,
+from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') updatetime,p_mediaid, p_provinceid
+FROM flowopt.flow_opt_base
+where p_mediaid=@mediaid
+        	]]></value>
+        </property>
+    </bean>
+    <!-- 1) 获取共有的并增加权重值，暂存 -->
+    <bean name="flowopt_share" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_share" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+        	insert overwrite table flow_opt_base_share PARTITION (p_mediaid, p_provinceid)
+SELECT  b.mac,p.ip,b.mediaid,b.oemid,p.provinceid,p.cityid,
+case when rand()>0.5 then weight+1 else weight-1 end  newweight,
+from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') updatetime, p_mediaid, p_provinceid
+FROM flowopt.flow_opt_base b, superssp_adstat.superssp_adstat_exp p
+where p.daytime = @yestoday
+and b.p_mediaid=@mediaid
+and b.p_mediaid = p.mediaid
+and p.mediaid=@mediaid
+and p.oemid in (@oemid)
+and upper(b.mac) = upper(p.mac)
+        	]]></value>
+        </property>
+    </bean>
+
+    <!-- 2) 获取基础数据表有，但曝光表里没有的数据，暂存， 权重不变 -->
+    <bean name="flowopt_old" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_old" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table flow_opt_base_old PARTITION (p_mediaid, p_provinceid)
+select bmac,ip,mediaid,oemid,provinceid,cityid,weight,
+from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') updatetime, p_mediaid, p_provinceid
+from (
+SELECT bin.mac bmac,bin.ip,bin.mediaid,bin.oemid,bin.provinceid,bin.cityid, bin.weight,
+bin.p_mediaid, bin.p_provinceid, pin.mac pmac
+FROM flowopt.flow_opt_base bin left join flow_opt_base_share pin
+on (upper(bin.mac) = upper(pin.mac)) ) tmp
+where tmp.pmac is null
+        	]]></value>
+        </property>
+    </bean>
+
+    <!-- 3) 获取曝光表里有，但基础数据里没有的数据，权重为1，暂存， -->
+    <bean name="flowopt_new" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_new" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table flow_opt_base_new PARTITION (p_mediaid, p_provinceid)
+select pmac,ip,mediaid,oemid,provinceid,cityid,weight,
+from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') updatetime, p_mediaid, p_provinceid
+from (
+select pin.mac pmac,pin.ip,pin.mediaid,pin.oemid,pin.provinceid,pin.cityid,1 as weight,
+pin.mediaid p_mediaid, pin.provinceid p_provinceid, bin.mac bmac
+from (select * from superssp_adstat.superssp_adstat_exp p
+where p.daytime = @yestoday and p.mediaid=@mediaid and  p.oemid in (@oemid) ) pin left join
+(select * from flowopt.flow_opt_base b where b.p_mediaid=@mediaid) bin
+on (upper(pin.mac) = upper(bin.mac)) ) tmp
+where  tmp.bmac is null
+        	]]></value>
+        </property>
+    </bean>
+
+
+    <!-- 4) 合并三张表到临时表，临时表去重后更新到基础数据表中。 -->
+
+    <!--1、##写共同用户到临时表-->
+    <bean name="flowopt_aggre_share" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_aggre_share" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table flow_opt_base_tmp PARTITION (p_mediaid, p_provinceid)
+SELECT mac, ip, mediaid, oemid, provinceid, cityid, weight,
+from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') updatetime, p_mediaid, p_provinceid
+from flow_opt_base_share
+        	]]></value>
+        </property>
+    </bean>
+
+
+    <!--2、 ##追加历史用户到临时表-->
+    <bean name="flowopt_aggre_old" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_aggre_old" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert into table flow_opt_base_tmp PARTITION (p_mediaid, p_provinceid)
+SELECT mac, ip, mediaid, oemid, provinceid, cityid, weight,
+from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') updatetime, p_mediaid, p_provinceid
+from flow_opt_base_old
+        	]]></value>
+        </property>
+    </bean>
+
+
+    <!--3、##追加新增用户到临时表-->
+    <bean name="flowopt_aggre_new" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_aggre_new" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert into table flow_opt_base_tmp PARTITION (p_mediaid, p_provinceid)
+SELECT mac, ip, mediaid, oemid, provinceid, cityid, weight,
+from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') updatetime, p_mediaid, p_provinceid
+from flow_opt_base_new
+        	]]></value>
+        </property>
+    </bean>
+
+
+    <!--4、##将临时表数据唯一去重导入到 base 表-->
+    <bean name="flowopt_aggre_tobase" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_aggre_tobase" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert into table flow_opt_base PARTITION (p_mediaid, p_provinceid)
+SELECT mac, ip, mediaid, oemid, provinceid, cityid, weight,
+from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') updatetime, p_mediaid, p_provinceid
+from (
+select *,row_number() over (partition by mac order by ip asc) num
+from flow_opt_base_tmp
+) tmp
+where tmp.num=1
+        	]]></value>
+        </property>
+    </bean>
+
+    <!--############### 清空中间计算表 ##################-->
+
+    <bean name="flowopt_clear_share" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_clear_share" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[ TRUNCATE TABLE flow_opt_base_share	]]></value>
+        </property>
+    </bean>
+
+    <bean name="flowopt_clear_old" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_clear_old" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[ TRUNCATE TABLE flow_opt_base_old	]]></value>
+        </property>
+    </bean>
+
+    <bean name="flowopt_clear_new" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_clear_new" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[ TRUNCATE TABLE flow_opt_base_new ]]></value>
+        </property>
+    </bean>
+
+    <bean name="flowopt_clear_tmp" class="com.voole.ad.aggre.detail.FlowOptAggreTask" >
+        <property name="taskId" value="flowopt_clear_tmp" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[ TRUNCATE TABLE flow_opt_base_tmp ]]></value>
+        </property>
+    </bean>
+
+
+    <!-- ################  组织任务   ########################### -->
+    <bean id="agreeTaskMap" class="java.util.LinkedHashMap">
+        <constructor-arg>
+            <map>
+                <entry key="flowopt_basebak" value-ref="flowopt_basebak"/>
+                <entry key="flowopt_share" value-ref="flowopt_share"/>
+                <entry key="flowopt_old" value-ref="flowopt_old"/>
+                <entry key="flowopt_new" value-ref="flowopt_new"/>
+
+                <entry key="flowopt_aggre_share" value-ref="flowopt_aggre_share"/>
+                <entry key="flowopt_aggre_old" value-ref="flowopt_aggre_old"/>
+                <entry key="flowopt_aggre_new" value-ref="flowopt_aggre_new"/>
+                <entry key="flowopt_aggre_tobase" value-ref="flowopt_aggre_tobase"/>
+
+                <entry key="flowopt_clear_share" value-ref="flowopt_clear_share"/>
+                <entry key="flowopt_clear_old" value-ref="flowopt_clear_old"/>
+                <entry key="flowopt_clear_new" value-ref="flowopt_clear_new"/>
+                <entry key="flowopt_clear_tmp" value-ref="flowopt_clear_tmp"/>
+            </map>
+        </constructor-arg>
+    </bean>
+
+    <!-- hive汇聚任务类 -->
+    <bean name="flowOptAggreJob" class="com.voole.ad.aggre.FlowOptAggreJob">
+        <property name="agreeTaskMap" ref="agreeTaskMap" />
+    </bean>
+
+
+
+</beans>

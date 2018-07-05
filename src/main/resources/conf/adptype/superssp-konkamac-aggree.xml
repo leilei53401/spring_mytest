@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	康佳mac获取原始 IP 任务
+        -->
+        
+   <!-- 1、查出每一天能关联出 IP 的mac 放到临时结果表中 -->
+   <bean name="findDayIpToTmp" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="findDayIpToTmp" />  
+      	 <property name="enable" value="true" />  
+      <!-- 	 <property name="dateFormat" value="yyyy-MM-dd" />   -->
+      	 <property name="taskBody">
+        	<value><![CDATA[
+insert OVERWRITE TABLE konka.konka_mac_result_tmp
+select m.orgmac,m.macmd51,m.macmd52,p.ip
+from  konka.konka_mac m join default.fact_adap_adst_history p on upper(m.macmd51) = p.mac
+where p.day='@yestoday' and p.ven=900103
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 2、konka_mac_result_tmp 去重后取第一个ip , 与 result union 在合并到 result 中 -->
+   <bean name="updateToResult" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="updateToResult" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+insert OVERWRITE TABLE konka.konka_mac_result
+select * from konka.konka_mac_result
+union all
+select orgmac,macmd51,macmd52,ip from 
+(
+select *,row_number() over (partition by macmd51 order by ip asc) num from konka.konka_mac_result_tmp
+) tmp
+where tmp.num=1
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- 3、将已解析出	IP 的数据 从原始表 mac去掉, overwrite到原始表中 -->
+   <bean name="updateOrgMac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="updateOrgMac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+insert OVERWRITE TABLE konka.konka_mac
+select tmp.orgmac,tmp.macmd51,tmp.macmd52 from (
+select m.*, r.macmd51 rmacmd51  from konka.konka_mac m left join konka.konka_mac_result r on  m.macmd51 = r.macmd51) tmp
+where tmp.rmacmd51 is null
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 清空临时结果表，下一次计算使用 -->
+   <bean name="clearReultTmp" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="clearReultTmp" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+truncate table konka.konka_mac_result_tmp
+        	]]></value>
+        </property>
+   </bean>
+   
+   <bean id="konkaTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+				<entry key="findDayIpToTmp" value-ref="findDayIpToTmp" />
+				<entry key="updateToResult" value-ref="updateToResult" />
+				<entry key="updateOrgMac" value-ref="updateOrgMac" />
+				<entry key="clearReultTmp" value-ref="clearReultTmp" />
+			</map>
+		</constructor-arg>
+	</bean>
+   
+   
+     <bean name="konkaAggreJob" class="com.voole.ad.aggre.detail.BaseAggreJob">
+     	  <property name="agreeTaskMap" ref="konkaTaskMap" />
+     </bean>
+    
+    
+    <!-- 定时任务启动类 -->
+	<bean name="startKonkaAggreJob" class="com.voole.ad.main.StartJob">
+	     <property name="hiveAggreJob" ref="konkaAggreJob" />
+		<!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+		<property name="timeDelay" value="-30" />
+		<!-- timeStepSize:步长，连续处理几天的数据 -->
+		<property name="timeStepSize" value="30" />
+		<!-- 时间类型：0天，1小时 -->
+		<property name="timeType" value="0" />
+	</bean>
+    
+    <bean name="startKonkaJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startKonkaAggreJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   <!--  注：启动调度配置在小时库存上报xml文件中 -->
+    <bean id="startKonkaTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startKonkaJob" />   
+         <property name="cronExpression" value="30 17 12 16 * ?" /> 
+    </bean>	    
+    
+</beans>

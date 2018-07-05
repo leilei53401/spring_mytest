@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+       <!--
+              监测汇报除曝光，库存外其他数据
+       	解析本地文件并导入到hdfs对应的 hive表中
+       		c:终端信息上报
+        	d:卡顿汇报
+        	e:局域网信息
+        	f:投屏信息
+        	g:预下载汇报#20180130
+       -->
+
+<!-- c:终端信息上报 -->
+	<bean name="terminalUploadTask"		class="com.voole.ad.loadtohdfs.monitorreport.BaseUploadMonReportTask">
+		<property name="taskId" value="terminalUploadTask" />
+		<property name="srcPath" value="/opt/webapps/superssp_monitorreport/file/c" />
+		<property name="hadoopUser" value="root" />
+		<!--<property name="hdfsRootPath" value="hdfs://data-m01.super-ssp.tv:8020" />-->
+        <property name="hdfsRootPath" value="hdfs://ad-master:9000" />
+		<property name="dstPath">
+			<value><![CDATA[/hive/warehouse/superssp_adstat.db/adst_terminal_info]]></value>
+		</property>
+	</bean>
+	
+	<!-- d:卡顿汇报 -->
+	<bean name="lagUploadTask"  class="com.voole.ad.loadtohdfs.monitorreport.BaseUploadMonReportTask">
+		<property name="taskId" value="lagUploadTask" />
+		<property name="srcPath" value="/opt/webapps/superssp_monitorreport/file/d" />
+		<property name="hadoopUser" value="root" />
+        <property name="hdfsRootPath" value="hdfs://ad-master:9000" />
+		<property name="dstPath">
+			<value><![CDATA[/hive/warehouse/superssp_adstat.db/adst_lag_info]]></value>
+		</property>
+	</bean>
+	
+	
+	<!-- e:局域网信息 -->
+	<bean name="lanUploadTask" class="com.voole.ad.loadtohdfs.monitorreport.BaseUploadMonReportTask">
+		<property name="taskId" value="lanUploadTask" />
+		<property name="srcPath" value="/opt/webapps/superssp_monitorreport/file/e" />
+		<property name="hadoopUser" value="root" />
+        <property name="hdfsRootPath" value="hdfs://ad-master:9000" />
+		<property name="dstPath">
+			<value><![CDATA[/hive/warehouse/superssp_adstat.db/adst_lan_info]]></value>
+		</property>
+	</bean>
+	
+	<!-- f:投屏信息 -->
+	<bean name="projectionUploadTask"		class="com.voole.ad.loadtohdfs.monitorreport.BaseUploadMonReportTask">
+		<property name="taskId" value="projectionUploadTask" />
+		<property name="srcPath" value="/opt/webapps/superssp_monitorreport/file/f" />
+		<property name="hadoopUser" value="root" />
+        <property name="hdfsRootPath" value="hdfs://ad-master:9000" />
+		<property name="dstPath">
+			<value><![CDATA[/hive/warehouse/superssp_adstat.db/adst_projection_info]]></value>
+		</property>
+	</bean>
+
+
+    <!-- g:预下载汇报 -->
+    <bean name="predownUploadTask"		class="com.voole.ad.loadtohdfs.monitorreport.BaseUploadMonReportTask">
+        <property name="taskId" value="projectionUploadTask" />
+        <property name="srcPath" value="/opt/webapps/superssp_monitorreport/file/g" />
+        <property name="hadoopUser" value="root" />
+        <property name="hdfsRootPath" value="hdfs://ad-master:9000" />
+        <property name="dstPath">
+            <value><![CDATA[/hive/warehouse/startpre.db/startpre_downstat_detail]]></value>
+        </property>
+    </bean>
+
+
+    
+    <bean id="uploadMonitorReportTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+				<entry key="terminalUploadTask" value-ref="terminalUploadTask" />
+				<entry key="lagUploadTask" value-ref="lagUploadTask" />
+				<entry key="lanUploadTask" value-ref="lanUploadTask" />
+				<entry key="projectionUploadTask" value-ref="projectionUploadTask" />
+			</map>
+		</constructor-arg>
+	</bean>
+    
+    <!-- +++++++++++++++++ 定时将文件load到hdfs任务++++++++++++++++++++++ -->
+	
+    <bean name="loadReportJob" class="com.voole.ad.loadtohdfs.monitorreport.UploadMonReportBaseJob">
+        <property name="uploadMonitorReportTaskMap" ref="uploadMonitorReportTaskMap" />  
+    </bean>
+    
+
+</beans>

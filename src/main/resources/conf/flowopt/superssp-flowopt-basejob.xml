@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	流量优化任务入口
+        -->
+
+    <!-- 定时任务启动类 -->
+	<bean name="startJob" class="com.voole.ad.main.StartFlowOptJob">
+           <!--<property name="flowOptCalTerminalNumJob" ref="flowOptCalTerminalNumJob" />
+           <property name="flowOptAggreJob" ref="flowOptAggreJob" />
+          <property name="flowOptOutPutJob" ref="flowOptOutPutJob" />-->
+	</bean>
+    
+    
+    <bean name="startFlowOptJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startFlowOptTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">
+         <property name="jobDetail" ref="startFlowOptJob" />
+         <property name="cronExpression" value="30 */10 5-23 * * ?" />
+    </bean>
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startFlowOptTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

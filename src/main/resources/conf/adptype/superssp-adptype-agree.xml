@@ -1,0 +1,1436 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	hive 离线汇聚任务
+        	###################### (分创意，媒体，super广告位任务) #########################
+			#
+			# 统计维度考虑（按创意统计任务）
+			# 1:不分媒体，不分super广告位
+			# 2:分媒体,不分super广告位
+			# 3:分媒体,分super广告位
+			# 4:不分媒体，分super广告位 
+			#
+			########################################################################
+        -->
+  <!-- ################  配置计算任务开始  ########################### -->
+
+    <bean name="adptype_setdynamic_nonstrict" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="adptype_setdynamic_nonstrict" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+             set hive.exec.dynamic.partition.mode=nonstrict
+        	]]></value>
+        </property>
+    </bean>
+
+  <!-- 1、 得到昨天的用户信息 -->
+  <bean name="adptype_yestodaymac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_yestodaymac" />  
+      	 <property name="enable" value="true" />  
+      	 <property name="taskBody">
+        	<value><![CDATA[
+insert overwrite table tmp_adst_adptype_sum_mac PARTITION (creativeid, mediaid)
+ SELECT t.mac, t.provinceid, t.cityid ,@yestoday ,@yestoday, t.te,t.adptype, t.creativeid, t.mediaid
+  FROM adst_creative_info tl
+ JOIN superssp_adstat_exp t ON t.creativeid = tl.creativeid WHERE t.daytime=@yestoday AND tl.starttime <= t.daytime AND tl.endtime >= t.daytime
+ GROUP BY t.mac, t.creativeid, t.mediaid, t.provinceid, t.cityid,t.te,t.adptype
+        	]]></value>
+        </property>
+   </bean>
+   <!-- 2、昨天之前的用户信息 -->
+    <bean name="adptype_yestodaybeforemac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_yestodaybeforemac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+        		insert overwrite table tmp_old_adst_adptype_sum_mac PARTITION (creativeid, mediaid) 
+				select t.mac, t.cityid, t.provinceid, t.fristdate, t.lastdate,t.te,t.adptype, t.creativeid, t.mediaid
+				from (select i2.* from adst_creative_info i1 join adst_adptype_sum_mac i2 on i1.creativeid=i2.creativeid and fristdate < @yestoday) t 
+				 left join tmp_adst_adptype_sum_mac tl
+				on ( t.mac = tl.mac and t.creativeid = tl.creativeid and t.mediaid = tl.mediaid and t.cityid = tl.cityid and t.provinceid=tl.provinceid and t.adptype=tl.adptype and t.te=tl.te )
+				where tl.mac is null
+        	]]></value>
+        </property>
+   </bean>
+     <!-- 3、昨天新增用户信息 -->
+    <bean name="adptype_yestodaynewmac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_yestodaynewmac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+        insert overwrite table tmp_new_adst_adptype_sum_mac PARTITION (creativeid, mediaid) 
+			select t.mac, t.cityid, t.provinceid, t.fristdate, t.lastdate,t.te,t.adptype, t.creativeid, t.mediaid
+			from tmp_adst_adptype_sum_mac t left join adst_adptype_sum_mac tl
+			on ( t.mac = tl.mac and t.creativeid = tl.creativeid and t.mediaid = tl.mediaid and t.cityid = tl.cityid and t.provinceid=tl.provinceid and t.adptype=tl.adptype and t.te=tl.te )
+			where tl.mac is null
+        	]]></value>
+        </property>
+   </bean>
+   
+        <!--4、 昨天和昨天之前共同用户 -->
+    <bean name="adptype_yestodaysharemac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_yestodaysharemac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	        insert overwrite table tmp_share_adst_adptype_sum_mac PARTITION (creativeid, mediaid) 
+			select t.mac, t.cityid, t.provinceid, tl.fristdate, IF ( t.lastdate > tl.lastdate, t.lastdate, tl.lastdate ),t.te,t.adptype, t.creativeid, t.mediaid 
+			from tmp_adst_adptype_sum_mac t join adst_adptype_sum_mac tl 
+			on ( t.mac = tl.mac and t.creativeid = tl.creativeid and t.mediaid = tl.mediaid and t.cityid = tl.cityid
+			 and t.provinceid=tl.provinceid and t.adptype=tl.adptype and t.te=tl.te )
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 5、清空用户表，防止数据重复(TODO:验证前几步没异常后在做这步骤操作) -->
+    <bean name="adptype_clearmac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="clearmac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	       TRUNCATE TABLE tmp_adst_adptype_sum_mac
+        	]]></value>
+        </property>
+   </bean>
+   
+   
+      <!--6、写历史用户到用户表 -->
+    <bean name="adptype_inserthistorymac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_inserthistorymac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	       insert overwrite table adst_adptype_sum_mac PARTITION (creativeid, mediaid) 
+select mac, cityid, provinceid, fristdate, lastdate, te, adptype, creativeid, mediaid from tmp_old_adst_adptype_sum_mac
+        	]]></value>
+        </property>
+   </bean>
+   
+      <!--7、追加新增用户到用户表 -->
+    <bean name="adptype_addnewmac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_addnewmac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	       insert into table adst_adptype_sum_mac PARTITION (creativeid, mediaid) 
+select mac, cityid, provinceid, fristdate, lastdate, te, adptype, creativeid, mediaid from tmp_new_adst_adptype_sum_mac
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!--8、 追加共同用户到用户表 -->
+   <bean name="adptype_addsharemac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_addsharemac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+insert into table adst_adptype_sum_mac PARTITION (creativeid, mediaid) 
+select mac, cityid, provinceid, fristdate, lastdate, te, adptype, creativeid, mediaid from tmp_share_adst_adptype_sum_mac
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!--9.1 开始清空中间环节表 -->
+    <bean name="adptype_cleartmpmac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_cleartmpmac" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+				TRUNCATE TABLE tmp_adst_adptype_sum_mac
+        	]]></value>
+        </property>
+   </bean>
+     <!--9.2  -->
+    <bean name="adptype_cleartmpshare" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_cleartmpshare" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+				TRUNCATE TABLE tmp_share_adst_adptype_sum_mac
+        	]]></value>
+        </property>
+   </bean>
+     <!--9.3 -->
+    <bean name="adptype_cleartmpold" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_cleartmpold" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+				TRUNCATE TABLE tmp_old_adst_adptype_sum_mac
+        	]]></value>
+        </property>
+   </bean>
+     <!--9.4 -->
+    <bean name="adptype_cleartmpnew" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_cleartmpnew" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+				TRUNCATE TABLE tmp_new_adst_adptype_sum_mac
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- ################  分维度统计任务开始  ########################### -->  
+  
+  <!-- ************** 维度汇聚1 (不分媒体，不分super广告位) mediaid=-1,adptype=-1 ,creativeid, provinceid, cityid, te ******************** -->
+  
+  <!-- 得到累计触达 -->
+  <bean name="adptype_gettotaldev_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_gettotaldev_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+		select -1 as mediaid, t.creativeid,-1 as adptype, t.provinceid, t.cityid, t.te,
+		0 as playnum, 0 as devnum, 0 as totalplaynum, count(distinct(t.mac)) totaldevnum
+		from  adst_creative_info tl JOIN adst_adptype_sum_mac t ON (tl.creativeid = t.creativeid )
+		where t.fristdate <=@yestoday  group by t.creativeid, t.provinceid, t.cityid,t.te
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 得到本周期内的触达和曝光 -->
+  <bean name="adptype_getplayanddev_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getplayanddev_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		INSERT OVERWRITE TABLE adst_adptype_sum_per
+select -1 as mediaid,t1.creativeid,-1 as adptype, provinceid, cityid,te, 
+sum(1) as playnum, count(distinct(mac)) as devnum
+from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid
+where daytime = @yestoday and type=0 group by t1.creativeid, cityid, provinceid,te
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 合并周期内的触达和曝光到临时结果表中 -->
+  <bean name="adptype_getpmergeplayanddev_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getpmergeplayanddev_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select t.mediaid, t.creativeid, t.adptype ,t.provinceid, t.cityid,t.te,
+if( tl.playnum is null, 0, tl.playnum ) as playnum,
+if(tl.devnum is null, 0, tl.devnum ) as devnum, t.totalplaynum, t.totaldevnum
+from tmp_ad_report_adptype_area t left join adst_adptype_sum_per tl 
+on (tl.creativeid = t.creativeid and tl.mediaid = t.mediaid  and t.adptype=tl.adptype and t.cityid = tl.cityid and t.provinceid = tl.provinceid and t.te=tl.te)
+where t.daytime =@yestoday and t.mediaid = '-1' and t.adptype='-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ##通过历史结果得到累计曝光 -->
+  <bean name="adptype_gettotalplay_nome_noad" class="com.voole.ad.aggre.detail.TotalPlayNumAggreTask" >
+      	 <property name="taskId" value="adptype_gettotalplay_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime = @yestoday) 
+SELECT t_0.mediaid,t_0.creativeid,t_0.adptype,t_0.provinceid,t_0.cityid,t_0.te,t_0.playnum,t_0.devnum,
+IF(t_0.playnum IS NULL,0,t_0.playnum) + IF (t_1.totalplaynum IS NULL,0,t_1.totalplaynum)  totalplaynum,t_0.totaldevnum
+FROM tmp_ad_report_adptype_area t_0 LEFT JOIN 
+(
+SELECT t.creativeid, t.provinceid, t.cityid, t.te, sum(t.playnum) AS totalplaynum 
+FROM adst_creative_info tl JOIN ad_report_adptype_area t ON t.creativeid = tl.creativeid 
+WHERE t.daytime >= tl.starttime AND t.daytime < @yestoday and t.mediaid='-1' and  t.adptype='-1' 
+GROUP BY t.creativeid, t.provinceid, t.cityid, t.te	
+) t_1 
+ON t_1.creativeid = t_0.creativeid AND t_1.cityid = t_0.cityid AND t_1.provinceid = t_0.provinceid AND t_1.te = t_0.te
+WHERE t_0.daytime = @yestoday AND t_0.mediaid = '-1' AND t_0.adptype = '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 将临时结果写入结果表 -->
+  <bean name="adptype_getresult_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getresult_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE ad_report_adptype_area PARTITION (daytime=@yestoday)
+select mediaid,creativeid,adptype, provinceid, cityid,te, playnum, devnum, totalplaynum, totaldevnum 
+from tmp_ad_report_adptype_area where daytime=@yestoday
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- 清空临时结果表 -->
+  <bean name="adptype_cleartmpresult_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_cleartmpresult_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		TRUNCATE TABLE tmp_ad_report_adptype_area
+        	]]></value>
+        </property>
+   </bean>
+    <!-- 清空当前周期表 -->
+  <bean name="adptype_clearperresult_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_clearperresult_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			TRUNCATE TABLE adst_adptype_sum_per
+        	]]></value>
+        </property>
+   </bean>
+   
+   
+   
+ <!-- ************** 维度汇聚2 (分媒体，分super广告位) mediaid, adptype, creativeid, provinceid, cityid, te  ******************** -->
+  
+  <!-- 得到累计触达 -->
+  <bean name="adptype_gettotaldev_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_gettotaldev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select t.mediaid, t.creativeid, t.adptype, t.provinceid, t.cityid, t.te,
+0 as playnum, 0 as devnum, 0 as totalplaynum, count(distinct(t.mac)) totaldevnum
+from adst_creative_info tl JOIN adst_adptype_sum_mac t ON (tl.creativeid = t.creativeid )
+where t.fristdate <=@yestoday  group by t.mediaid,t.creativeid, t.adptype, t.provinceid, t.cityid,t.te
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 得到本周期内的触达和曝光 -->
+  <bean name="adptype_getplayanddev_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getplayanddev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE adst_adptype_sum_per 
+select  mediaid,t1.creativeid,adptype, provinceid, cityid, te,
+sum(1) as playnum, count(distinct(mac)) as devnum
+from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid
+where daytime = @yestoday and type=0 group by mediaid, t1.creativeid,adptype,cityid, provinceid, te
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 合并周期内的触达和曝光到临时结果表中 -->
+  <bean name="adptype_getpmergeplayanddev_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getpmergeplayanddev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select t.mediaid, t.creativeid, t.adptype,t.provinceid, t.cityid,t.te,
+if( tl.playnum is null, 0, tl.playnum ) as playnum,
+if(tl.devnum is null, 0, tl.devnum ) as devnum, t.totalplaynum, t.totaldevnum
+from tmp_ad_report_adptype_area t left join adst_adptype_sum_per tl 
+on (tl.mediaid = t.mediaid and tl.creativeid = t.creativeid  and t.adptype=tl.adptype and  t.cityid = tl.cityid and t.provinceid = tl.provinceid and t.te=tl.te)
+where t.daytime = @yestoday and t.mediaid <> '-1' and t.adptype <> '-1' 
+
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ##通过历史结果得到累计曝光 -->
+  <bean name="adptype_gettotalplay_me_ad" class="com.voole.ad.aggre.detail.TotalPlayNumAggreTask" >
+      	 <property name="taskId" value="adptype_gettotalplay_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime = @yestoday) 
+SELECT t_0.mediaid,t_0.creativeid,t_0.adptype,t_0.provinceid,t_0.cityid,t_0.te,t_0.playnum,t_0.devnum,
+IF(t_0.playnum IS NULL,0,t_0.playnum) + IF (t_1.totalplaynum IS NULL,0,t_1.totalplaynum)  totalplaynum,t_0.totaldevnum
+FROM tmp_ad_report_adptype_area t_0 LEFT JOIN 
+(
+SELECT t.creativeid, t.mediaid, t.adptype,t.provinceid, t.cityid, t.te, sum(t.playnum) AS totalplaynum 
+FROM adst_creative_info tl JOIN ad_report_adptype_area t ON t.creativeid = tl.creativeid 
+WHERE t.daytime >= tl.starttime AND t.daytime < @yestoday and t.mediaid<>'-1' and  t.adptype<>'-1' 
+GROUP BY t.creativeid, t.mediaid, t.adptype, t.provinceid, t.cityid, t.te	
+) t_1 
+ON t_1.creativeid = t_0.creativeid AND t_1.mediaid = t_0.mediaid and t_1.adptype = t_0.adptype AND t_1.cityid = t_0.cityid AND t_1.provinceid = t_0.provinceid AND t_1.te = t_0.te
+WHERE t_0.daytime = @yestoday AND t_0.mediaid <> '-1' AND t_0.adptype <> '-1' 
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 将临时结果写入结果表 -->
+  <bean name="adptype_getresult_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getresult_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT INTO TABLE ad_report_adptype_area PARTITION (daytime=@yestoday)
+select mediaid,creativeid,adptype,provinceid, cityid,te,playnum, devnum, totalplaynum, totaldevnum 
+from tmp_ad_report_adptype_area where daytime=@yestoday
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- 清空临时结果表 -->
+  <bean name="adptype_cleartmpresult_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_cleartmpresult_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		TRUNCATE TABLE tmp_ad_report_adptype_area
+        	]]></value>
+        </property>
+   </bean>
+ <!-- 清空当前周期表 -->
+  <bean name="adptype_clearperresult_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_clearperresult_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			TRUNCATE TABLE adst_adptype_sum_per
+        	]]></value>
+        </property>
+   </bean>
+   
+   
+   
+   <!-- ************** 维度汇聚3 (分媒体，不分super广告位) mediaid,adptype =-1,creativeid, provinceid, cityid, te ******************** -->
+  
+  <!-- 得到累计触达 -->
+  <bean name="adptype_gettotaldev_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_gettotaldev_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select t.mediaid, t.creativeid, -1 as adptype, t.provinceid, t.cityid, t.te,
+0 as playnum, 0 as devnum, 0 as totalplaynum, count(distinct(t.mac)) totaldevnum
+from adst_creative_info tl JOIN adst_adptype_sum_mac t ON (tl.creativeid = t.creativeid )
+where t.fristdate <=@yestoday  group by t.mediaid,t.creativeid, t.provinceid, t.cityid,t.te
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 得到本周期内的触达和曝光 -->
+  <bean name="adptype_getplayanddev_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getplayanddev_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE adst_adptype_sum_per 
+select  mediaid, t1.creativeid, -1 as adptype, provinceid, cityid, te,
+sum(1) as playnum, count(distinct(mac)) as devnum
+from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid
+where daytime = @yestoday and type=0 group by mediaid, t1.creativeid, cityid, provinceid, te
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 合并周期内的触达和曝光到临时结果表中 -->
+  <bean name="adptype_getpmergeplayanddev_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getpmergeplayanddev_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select t.mediaid,t.creativeid, t.adptype,t.provinceid, t.cityid,t.te,
+if( tl.playnum is null, 0, tl.playnum ) as playnum,
+if(tl.devnum is null, 0, tl.devnum ) as devnum, t.totalplaynum, t.totaldevnum
+from tmp_ad_report_adptype_area t left join adst_adptype_sum_per tl 
+on (tl.mediaid = t.mediaid and tl.creativeid = t.creativeid  and t.adptype=tl.adptype and t.cityid = tl.cityid and t.provinceid = tl.provinceid and t.te=tl.te)
+where t.daytime = @yestoday and t.mediaid <> '-1' and t.adptype = '-1' and t.provinceid <> '-1' and t.cityid <> '-1' and t.creativeid <> '-1' and t.te <> '-1'
+
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ##通过历史结果得到累计曝光 -->
+  <bean name="adptype_gettotalplay_me_noad" class="com.voole.ad.aggre.detail.TotalPlayNumAggreTask" >
+      	 <property name="taskId" value="adptype_gettotalplay_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime = @yestoday) 
+SELECT t_0.mediaid,t_0.creativeid,t_0.adptype,t_0.provinceid,t_0.cityid,t_0.te,t_0.playnum,t_0.devnum,
+IF(t_0.playnum IS NULL,0,t_0.playnum) + IF (t_1.totalplaynum IS NULL,0,t_1.totalplaynum)  totalplaynum,t_0.totaldevnum
+FROM tmp_ad_report_adptype_area t_0 LEFT JOIN 
+(
+SELECT t.creativeid, t.mediaid,t.provinceid, t.cityid, t.te, sum(t.playnum) AS totalplaynum 
+FROM adst_creative_info tl JOIN ad_report_adptype_area t ON t.creativeid = tl.creativeid 
+WHERE t.daytime >= tl.starttime AND t.daytime < @yestoday and t.mediaid<>'-1' and  t.adptype='-1' 
+GROUP BY t.creativeid, t.mediaid, t.provinceid, t.cityid, t.te	
+) t_1 
+ON t_1.creativeid = t_0.creativeid AND t_1.mediaid = t_0.mediaid AND t_1.cityid = t_0.cityid AND t_1.provinceid = t_0.provinceid AND t_1.te = t_0.te
+WHERE t_0.daytime = @yestoday AND t_0.mediaid <> '-1' AND t_0.adptype = '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 将临时结果写入结果表 -->
+  <bean name="adptype_getresult_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getresult_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	INSERT INTO TABLE ad_report_adptype_area PARTITION (daytime=@yestoday)
+select  mediaid, creativeid, adptype, provinceid, cityid,te, playnum, devnum, totalplaynum, totaldevnum 
+from tmp_ad_report_adptype_area where daytime=@yestoday
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- 清空临时结果表 -->
+  <bean name="adptype_cleartmpresult_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_cleartmpresult_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		TRUNCATE TABLE tmp_ad_report_adptype_area
+        	]]></value>
+        </property>
+   </bean>
+ <!-- 清空当前周期表 -->
+  <bean name="adptype_clearperresult_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_clearperresult_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			TRUNCATE TABLE adst_adptype_sum_per
+        	]]></value>
+        </property>
+   </bean>
+   
+   
+   <!-- ************** 维度汇聚4 (不分媒体，分super广告位) mediaid=-1, adptype, creativeid, provinceid, cityid, te  ******************** -->
+  
+  <!-- 得到累计触达 -->
+  <bean name="adptype_gettotaldev_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_gettotaldev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select -1 as mediaid, t.creativeid, t.adptype, t.provinceid, t.cityid, t.te,
+0 as playnum, 0 as devnum, 0 as totalplaynum, count(distinct(t.mac)) totaldevnum
+from adst_creative_info tl JOIN adst_adptype_sum_mac t ON ( tl.creativeid = t.creativeid) 
+where t.fristdate <=@yestoday  group by t.creativeid, t.adptype, t.provinceid, t.cityid,t.te
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 得到本周期内的触达和曝光 -->
+  <bean name="adptype_getplayanddev_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getplayanddev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE adst_adptype_sum_per 
+select -1 as mediaid,t1.creativeid,adptype, provinceid, cityid, te,
+sum(1) as playnum, count(distinct(mac)) as devnum
+from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid
+where daytime = @yestoday and type=0 group by t1.creativeid,adptype,cityid, provinceid, te
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 合并周期内的触达和曝光到临时结果表中 -->
+  <bean name="adptype_getpmergeplayanddev_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getpmergeplayanddev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select t.mediaid,t.creativeid, t.adptype,t.provinceid, t.cityid,t.te,
+if( tl.playnum is null, 0, tl.playnum ) as playnum,
+if(tl.devnum is null, 0, tl.devnum ) as devnum, t.totalplaynum, t.totaldevnum
+from tmp_ad_report_adptype_area t left join adst_adptype_sum_per tl 
+on (tl.mediaid = t.mediaid and tl.creativeid = t.creativeid and t.adptype=tl.adptype  and t.cityid = tl.cityid and t.provinceid = tl.provinceid and t.te=tl.te)
+where t.daytime = @yestoday and t.mediaid = '-1' and t.adptype <> '-1' 
+and t.provinceid <> '-1' and t.cityid <> '-1' and t.creativeid <> '-1' and t.te <> '-1' 
+
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ##通过历史结果得到累计曝光 -->
+  <bean name="adptype_gettotalplay_nome_ad" class="com.voole.ad.aggre.detail.TotalPlayNumAggreTask" >
+      	 <property name="taskId" value="adptype_gettotalplay_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime = @yestoday) 
+SELECT t_0.mediaid,t_0.creativeid,t_0.adptype,t_0.provinceid,t_0.cityid,t_0.te,t_0.playnum,t_0.devnum,
+IF(t_0.playnum IS NULL,0,t_0.playnum) + IF (t_1.totalplaynum IS NULL,0,t_1.totalplaynum)  totalplaynum,t_0.totaldevnum
+FROM tmp_ad_report_adptype_area t_0 LEFT JOIN 
+(
+SELECT t.creativeid,  t.adptype,t.provinceid, t.cityid, t.te, sum(t.playnum) AS totalplaynum 
+FROM adst_creative_info tl JOIN ad_report_adptype_area t ON t.creativeid = tl.creativeid 
+WHERE t.daytime >= tl.starttime AND t.daytime < @yestoday and t.mediaid='-1' and  t.adptype<>'-1' 
+GROUP BY t.creativeid,  t.adptype, t.provinceid, t.cityid, t.te	
+) t_1 
+ON t_1.creativeid = t_0.creativeid  and t_1.adptype = t_0.adptype AND t_1.cityid = t_0.cityid AND t_1.provinceid = t_0.provinceid AND t_1.te = t_0.te
+WHERE t_0.daytime = @yestoday AND t_0.mediaid = '-1' AND t_0.adptype <> '-1' 
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 将临时结果写入结果表 -->
+  <bean name="adptype_getresult_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_getresult_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT INTO TABLE ad_report_adptype_area PARTITION (daytime=@yestoday)
+select  mediaid, creativeid, adptype, provinceid, cityid,te, playnum, devnum, totalplaynum, totaldevnum 
+from tmp_ad_report_adptype_area where daytime=@yestoday
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- 清空临时结果表 -->
+  <bean name="adptype_cleartmpresult_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_cleartmpresult_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		TRUNCATE TABLE tmp_ad_report_adptype_area
+        	]]></value>
+        </property>
+   </bean>
+ <!-- 清空当前周期表 -->
+  <bean name="adptype_clearperresult_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_clearperresult_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			TRUNCATE TABLE adst_adptype_sum_per
+        	]]></value>
+        </property>
+   </bean>
+   
+   
+    <!-- ################  不分区域统计开始  ########################### -->  
+  
+  <!-- ************** 不分区域汇总1 (不分媒体，不分super广告位):mediaid=-1,adptype=-1 ,creativeid, provinceid= -1, cityid= -1, te  ******************** -->
+  
+  <!--1. 得到累计触达 -->
+  <bean name="adptypenoarea_gettotaldev_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_gettotaldev_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday)
+select -1 as mediaid, creativeid, '-1' as adptype, '-1' as provinceid, '-1' as cityid, te, 
+0 as playnum, 0 as devnum, 0 as totalplaynum, sum(totaldevnum) totaldevnum
+from (
+select -1 as mediaid, t.creativeid, '-1' as adptype,  provinceid,  cityid, t.te, 
+count(distinct(t.mac)) totaldevnum
+from adst_creative_info tl JOIN adst_adptype_sum_mac t ON ( tl.creativeid = t.creativeid) 
+where t.fristdate <=@yestoday  group by t.creativeid,t.te,provinceid,cityid) tmp
+group by tmp.creativeid, tmp.te
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 得到本周期内的触达和曝光 -->
+  <bean name="adptypenoarea_getplayanddev_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getplayanddev_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE adst_adptype_sum_per 
+select '-1' as mediaid,creativeid, '-1' as adptype, '-1' as provinceid, '-1' cityid, te, 
+sum(playnum) as playnum, sum(devnum) as devnum 
+from (
+select '-1' as mediaid,creativeid, '-1' as adptype, te, provinceid, cityid, sum(1) as playnum, count(distinct(mac)) as devnum 
+from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid
+where daytime = @yestoday and type=0 group by t1.creativeid,te,provinceid,cityid
+) tmp group by tmp.creativeid,tmp.te
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 合并周期内的触达和曝光到临时结果表中 -->
+  <bean name="adptypenoarea_getpmergeplayanddev_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getpmergeplayanddev_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select '-1' as mediaid, t.creativeid, t.adptype ,'-1' as provinceid , '-1' cityid,t.te, 
+if( tl.playnum is null, 0, tl.playnum ) as playnum, 
+if(tl.devnum is null, 0, tl.devnum ) as devnum, t.totalplaynum, t.totaldevnum 
+from tmp_ad_report_adptype_area t left join adst_adptype_sum_per tl 
+on (tl.creativeid = t.creativeid and tl.mediaid = t.mediaid and tl.adptype = t.adptype  and t.te=tl.te)
+where t.daytime =@yestoday  and  t.creativeid <> '-1' and t.te<>'-1' and t.mediaid = '-1' and t.adptype='-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ##通过历史结果得到累计曝光 -->
+  <bean name="adptypenoarea_gettotalplay_nome_noad" class="com.voole.ad.aggre.detail.TotalPlayNumAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_gettotalplay_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+SELECT t_0.mediaid, t_0.creativeid,  t_0.adptype,  '-1' as province, '-1' as cityid,  t_0.te, t_0.playnum, t_0.devnum, 
+IF ( t_0.playnum IS NULL, 0, t_0.playnum ) + IF ( t_1.totalplaynum IS NULL, 0, t_1.totalplaynum ), t_0.totaldevnum 
+FROM tmp_ad_report_adptype_area t_0 
+LEFT JOIN 
+(SELECT t.creativeid, t.te, sum(t.playnum) AS totalplaynum
+FROM adst_creative_info tl JOIN ad_report_adptype t ON t.creativeid = tl.creativeid 
+WHERE t.daytime >= tl.starttime AND t.daytime < @yestoday  and t.mediaid='-1' and t.adptype='-1' 
+GROUP BY t.creativeid, t.te ) t_1 
+ON t_1.creativeid = t_0.creativeid AND t_1.te = t_0.te 
+WHERE t_0.daytime = @yestoday  AND t_0.creativeid <> '-1' AND t_0.te <> '-1' AND t_0.mediaid = '-1' and t_0.adptype = '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 将临时结果写入结果表 -->
+  <bean name="adptypenoarea_getresult_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getresult_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE ad_report_adptype PARTITION (daytime=@yestoday) 
+select mediaid, creativeid, adptype, te, playnum, devnum, totalplaynum, totaldevnum 
+from tmp_ad_report_adptype_area where daytime=@yestoday and mediaid = '-1' and  creativeid <> '-1' and adptype = '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- 清空临时结果表 -->
+  <bean name="adptypenoarea_cleartmpresult_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_cleartmpresult_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		TRUNCATE TABLE tmp_ad_report_adptype_area
+        	]]></value>
+        </property>
+   </bean>
+    <!-- 清空当前周期表 -->
+  <bean name="adptypenoarea_clearperresult_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_clearperresult_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			TRUNCATE TABLE adst_adptype_sum_per
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ************** 不分区域汇总2 (分媒体,分super广告位):mediaid,adptype,creativeid, provinceid=-1,cityid=-1,te  ******************** -->
+  
+  <!-- 得到累计触达 -->
+  <bean name="adptypenoarea_gettotaldev_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_gettotaldev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday)
+select mediaid, creativeid, adptype, '-1' as provinceid, '-1' as cityid, te, 
+0 as playnum, 0 as devnum, 0 as totalplaynum, sum(totaldevnum) totaldevnum
+from (
+select t.mediaid, t.creativeid, t.adptype,  provinceid,  cityid, t.te, 
+count(distinct(t.mac)) totaldevnum
+from adst_creative_info tl JOIN adst_adptype_sum_mac t ON ( tl.creativeid = t.creativeid) 
+where t.fristdate <=@yestoday  group by t.creativeid, t.mediaid, t.adptype, t.te,provinceid,cityid) tmp
+group by tmp.creativeid, tmp.mediaid, tmp.adptype, tmp.te
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 得到本周期内的触达和曝光 -->
+  <bean name="adptypenoarea_getplayanddev_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getplayanddev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE adst_adptype_sum_per 
+select  mediaid, creativeid, adptype, '-1' as provinceid, '-1' cityid, te, 
+sum(playnum) as playnum, sum(devnum) as devnum 
+from (
+select mediaid, creativeid, adptype, te, provinceid, cityid, sum(1) as playnum, count(distinct(mac)) as devnum 
+from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid
+where daytime = @yestoday and type=0 group by t1.creativeid, mediaid, adptype, te,provinceid,cityid
+) tmp group by tmp.creativeid, mediaid, adptype, tmp.te
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 合并周期内的触达和曝光到临时结果表中 -->
+  <bean name="adptypenoarea_getpmergeplayanddev_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getpmergeplayanddev_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select  t.mediaid, t.creativeid, t.adptype ,'-1' as provinceid , '-1' cityid,t.te, 
+if( tl.playnum is null, 0, tl.playnum ) as playnum, 
+if(tl.devnum is null, 0, tl.devnum ) as devnum, t.totalplaynum, t.totaldevnum 
+from tmp_ad_report_adptype_area t left join adst_adptype_sum_per tl
+on (tl.creativeid = t.creativeid and tl.mediaid = t.mediaid and tl.adptype=t.adptype and t.te=tl.te)
+where t.daytime = @yestoday  and t.mediaid <> '-1' and t.creativeid <> '-1' and t.te<>'-1' and t.adptype <> '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ##通过历史结果得到累计曝光 -->
+  <bean name="adptypenoarea_gettotalplay_me_ad" class="com.voole.ad.aggre.detail.TotalPlayNumAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_gettotalplay_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+SELECT t_0.mediaid, t_0.creativeid,  t_0.adptype,  '-1' as province, '-1' cityid,  t_0.te, t_0.playnum, t_0.devnum, 
+IF ( t_0.playnum IS NULL, 0, t_0.playnum ) + IF ( t_1.totalplaynum IS NULL, 0, t_1.totalplaynum ), t_0.totaldevnum 
+FROM tmp_ad_report_adptype_area t_0 
+LEFT JOIN 
+(SELECT t.creativeid, t.mediaid, t.adptype,t.te, sum(t.playnum) AS totalplaynum
+FROM adst_creative_info tl JOIN ad_report_adptype t ON t.creativeid = tl.creativeid 
+WHERE t.daytime >= tl.starttime AND t.daytime < @yestoday  and t.adptype <> '-1' and  t.mediaid<>'-1'
+GROUP BY t.creativeid, t.mediaid,t.adptype, t.te ) t_1 
+ON t_1.creativeid = t_0.creativeid AND t_1.mediaid = t_0.mediaid AND t_1.adptype = t_0.adptype  AND t_1.te = t_0.te 
+WHERE t_0.daytime = @yestoday AND t_0.mediaid <> '-1' AND t_0.creativeid <> '-1' AND t_0.te <> '-1' and t_0.adptype <> '-1' 
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 将临时结果写入结果表 -->
+  <bean name="adptypenoarea_getresult_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getresult_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT INTO TABLE ad_report_adptype PARTITION (daytime=@yestoday) 
+select mediaid, creativeid, adptype, te, playnum, devnum, totalplaynum, totaldevnum 
+from tmp_ad_report_adptype_area where daytime=@yestoday and mediaid<>'-1' and  creativeid <> '-1' and adptype <> '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- 清空临时结果表 -->
+  <bean name="adptypenoarea_cleartmpresult_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_cleartmpresult_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		TRUNCATE TABLE tmp_ad_report_adptype_area
+        	]]></value>
+        </property>
+   </bean>
+ <!-- 清空当前周期表 -->
+  <bean name="adptypenoarea_clearperresult_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_clearperresult_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			TRUNCATE TABLE adst_adptype_sum_per
+        	]]></value>
+        </property>
+   </bean>
+   
+   
+   
+   <!-- ************** 不分区域汇总3 (分媒体,不分super广告位):mediaid,adptype=-1,creativeid, provinceid=-1,cityid=-1,te ******************** -->
+  
+  <!-- 得到累计触达 -->
+  <bean name="adptypenoarea_gettotaldev_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_gettotaldev_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday)
+select mediaid, creativeid,  '-1' as adptype, '-1' as provinceid, '-1' as cityid, te, 
+0 as playnum, 0 as devnum, 0 as totalplaynum, sum(totaldevnum) totaldevnum
+from (
+select t.mediaid, t.creativeid, '-1' as adptype,  provinceid,  cityid, t.te, 
+count(distinct(t.mac)) totaldevnum
+from adst_creative_info tl JOIN adst_adptype_sum_mac t ON ( tl.creativeid = t.creativeid) 
+where t.fristdate <=@yestoday  group by t.creativeid, t.mediaid, t.te,provinceid,cityid) tmp
+group by tmp.creativeid, tmp.mediaid, tmp.te
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 得到本周期内的触达和曝光 -->
+  <bean name="adptypenoarea_getplayanddev_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getplayanddev_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE adst_adptype_sum_per 
+select  mediaid, creativeid,'-1' as  adptype, '-1' as provinceid, '-1' cityid, te, 
+sum(playnum) as playnum, sum(devnum) as devnum 
+from (
+select mediaid, creativeid,'-1' as adptype, te, provinceid, cityid, sum(1) as playnum, count(distinct(mac)) as devnum 
+from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid
+where daytime = @yestoday and type=0 group by t1.creativeid, mediaid, te,provinceid,cityid
+) tmp group by tmp.creativeid, mediaid, tmp.te
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 合并周期内的触达和曝光到临时结果表中 -->
+  <bean name="adptypenoarea_getpmergeplayanddev_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getpmergeplayanddev_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select  t.mediaid, t.creativeid, t.adptype ,'-1' as provinceid , '-1' cityid,t.te, 
+if( tl.playnum is null, 0, tl.playnum ) as playnum, 
+if(tl.devnum is null, 0, tl.devnum ) as devnum, t.totalplaynum, t.totaldevnum 
+from tmp_ad_report_adptype_area t left join adst_adptype_sum_per tl 
+on (tl.creativeid = t.creativeid and tl.mediaid = t.mediaid and tl.adptype = t.adptype  and t.te=tl.te)
+where t.daytime =@yestoday  and  t.creativeid <> '-1' and t.te<>'-1' and t.mediaid <> '-1' and t.adptype='-1'
+			]]></value>
+        </property>
+   </bean>
+   
+   <!-- ##通过历史结果得到累计曝光 -->
+  <bean name="adptypenoarea_gettotalplay_me_noad" class="com.voole.ad.aggre.detail.TotalPlayNumAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_gettotalplay_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+SELECT t_0.mediaid, t_0.creativeid,  t_0.adptype,  '-1' as province, '-1' cityid,  t_0.te, t_0.playnum, t_0.devnum, 
+IF ( t_0.playnum IS NULL, 0, t_0.playnum ) + IF ( t_1.totalplaynum IS NULL, 0, t_1.totalplaynum ), t_0.totaldevnum 
+FROM tmp_ad_report_adptype_area t_0 
+LEFT JOIN 
+(SELECT t.creativeid, t.mediaid,t.te, sum(t.playnum) AS totalplaynum
+FROM adst_creative_info tl JOIN ad_report_adptype t ON t.creativeid = tl.creativeid 
+WHERE t.daytime >= tl.starttime AND t.daytime < @yestoday  and t.mediaid<>'-1' and t.adptype='-1' 
+GROUP BY t.creativeid, t.mediaid,t.te ) t_1 
+ON t_1.creativeid = t_0.creativeid AND t_1.mediaid = t_0.mediaid AND t_1.te = t_0.te 
+WHERE t_0.daytime = @yestoday AND t_0.mediaid <> '-1' AND t_0.creativeid <> '-1' AND t_0.te <> '-1' and t_0.adptype = '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 将临时结果写入结果表 -->
+  <bean name="adptypenoarea_getresult_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getresult_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	INSERT INTO TABLE ad_report_adptype PARTITION (daytime=@yestoday) 
+select mediaid, creativeid, adptype, te, playnum, devnum, totalplaynum, totaldevnum 
+from tmp_ad_report_adptype_area where daytime=@yestoday and mediaid<>'-1' and  creativeid <> '-1' and adptype = '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- 清空临时结果表 -->
+  <bean name="adptypenoarea_cleartmpresult_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_cleartmpresult_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		TRUNCATE TABLE tmp_ad_report_adptype_area
+        	]]></value>
+        </property>
+   </bean>
+ <!-- 清空当前周期表 -->
+  <bean name="adptypenoarea_clearperresult_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_clearperresult_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			TRUNCATE TABLE adst_adptype_sum_per
+        	]]></value>
+        </property>
+   </bean>
+   
+   
+   
+   
+   <!-- ************** 不分区域汇总4 (不分媒体,分super广告位):mediaid=-1,adptype,creativeid, provinceid=-1,cityid=-1,te  ******************** -->
+  
+  <!-- 得到累计触达 -->
+  <bean name="adptypenoarea_gettotaldev_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_gettotaldev_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday)
+select  '-1' as mediaid, creativeid, adptype, '-1' as provinceid, '-1' as cityid, te, 
+0 as playnum, 0 as devnum, 0 as totalplaynum, sum(totaldevnum) totaldevnum
+from (
+select  '-1' as mediaid, t.creativeid, t.adptype,  provinceid,  cityid, t.te, 
+count(distinct(t.mac)) totaldevnum
+from adst_creative_info tl JOIN adst_adptype_sum_mac t ON ( tl.creativeid = t.creativeid) 
+where t.fristdate <=@yestoday  group by t.creativeid, t.adptype, t.te,provinceid,cityid) tmp
+group by tmp.creativeid, tmp.adptype, tmp.te
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 得到本周期内的触达和曝光 -->
+  <bean name="adptypenoarea_getplayanddev_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getplayanddev_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE adst_adptype_sum_per 
+select  '-1' as mediaid, creativeid, adptype, '-1' as provinceid, '-1' cityid, te, 
+sum(playnum) as playnum, sum(devnum) as devnum 
+from (
+select '-1' as mediaid, creativeid, adptype, te, provinceid, cityid, sum(1) as playnum, count(distinct(mac)) as devnum 
+from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid
+where daytime = @yestoday and type=0 group by t1.creativeid, adptype, te,provinceid,cityid
+) tmp group by tmp.creativeid, adptype, tmp.te
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 合并周期内的触达和曝光到临时结果表中 -->
+  <bean name="adptypenoarea_getpmergeplayanddev_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getpmergeplayanddev_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+select  t.mediaid, t.creativeid, t.adptype ,'-1' as provinceid , '-1' cityid,t.te, 
+if( tl.playnum is null, 0, tl.playnum ) as playnum, 
+if(tl.devnum is null, 0, tl.devnum ) as devnum, t.totalplaynum, t.totaldevnum 
+from tmp_ad_report_adptype_area t left join adst_adptype_sum_per tl 
+on (tl.creativeid = t.creativeid and tl.mediaid = t.mediaid and tl.adptype = t.adptype  and t.te=tl.te)
+where t.daytime =@yestoday  and  t.creativeid <> '-1' and t.te<>'-1' and t.mediaid = '-1' and t.adptype<>'-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ##通过历史结果得到累计曝光 -->
+  <bean name="adptypenoarea_gettotalplay_nome_ad" class="com.voole.ad.aggre.detail.TotalPlayNumAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_gettotalplay_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE tmp_ad_report_adptype_area PARTITION (daytime=@yestoday) 
+SELECT t_0.mediaid, t_0.creativeid,  t_0.adptype,  '-1' as province, '-1' cityid,  t_0.te, t_0.playnum, t_0.devnum, 
+IF ( t_0.playnum IS NULL, 0, t_0.playnum ) + IF ( t_1.totalplaynum IS NULL, 0, t_1.totalplaynum ), t_0.totaldevnum 
+FROM tmp_ad_report_adptype_area t_0 
+LEFT JOIN 
+(SELECT t.creativeid, t.adptype, t.te, sum(t.playnum) AS totalplaynum
+FROM adst_creative_info tl JOIN ad_report_adptype t ON t.creativeid = tl.creativeid 
+WHERE t.daytime >= tl.starttime AND t.daytime < @yestoday  and t.mediaid='-1' and t.adptype<>'-1' 
+GROUP BY t.creativeid, t.adptype, t.te ) t_1 
+ON t_1.creativeid = t_0.creativeid AND t_1.adptype = t_0.adptype AND t_1.te = t_0.te 
+WHERE t_0.daytime = @yestoday AND t_0.mediaid = '-1' AND t_0.creativeid <> '-1' AND t_0.te <> '-1' and t_0.adptype <> '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+    <!-- 将临时结果写入结果表 -->
+  <bean name="adptypenoarea_getresult_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_getresult_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT INTO TABLE ad_report_adptype PARTITION (daytime=@yestoday) 
+select mediaid, creativeid, adptype, te, playnum, devnum, totalplaynum, totaldevnum 
+from tmp_ad_report_adptype_area where daytime=@yestoday and mediaid = '-1' and  creativeid <> '-1' and adptype <> '-1'
+        	]]></value>
+        </property>
+   </bean>
+   
+  <!-- 清空临时结果表 -->
+  <bean name="adptypenoarea_cleartmpresult_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_cleartmpresult_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+		TRUNCATE TABLE tmp_ad_report_adptype_area
+        	]]></value>
+        </property>
+   </bean>
+ <!-- 清空当前周期表 -->
+  <bean name="adptypenoarea_clearperresult_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptypenoarea_clearperresult_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+			TRUNCATE TABLE adst_adptype_sum_per
+        	]]></value>
+        </property>
+   </bean>
+   
+<!--    ###################### 不分创意统计(-1)  ######################### -->
+
+<!-- ############## 维度汇聚1 (不分媒体，不分super广告位) mediaid=-1,adptype=-1 ,creativeid=-1, provinceid, cityid, te  ############### -->
+
+
+  <bean name="adptype_allcreative_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_allcreative_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT into TABLE ad_report_adptype_area PARTITION (daytime=@yestoday)
+select -1 as mediaid,-1 as creativeid,-1 as adptype, provinceid, cityid,te, 
+sum(1) as playnum, count(distinct(mac)) as devnum, 0 as totalplaynum , 0 as totaldevnum
+from superssp_adstat_exp where daytime = @yestoday and type=0
+group by cityid, provinceid,te
+        	]]></value>
+        </property>
+   </bean>
+   
+   <!-- ############## 维度汇聚2 (分媒体，不分super广告位) mediaid,adptype =-1,creativeid=-1, provinceid, cityid, te  ############### -->
+   
+   <bean name="adptype_allcreative_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_allcreative_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT into TABLE ad_report_adptype_area PARTITION (daytime=@yestoday)
+select mediaid,-1 as creativeid,-1 as adptype, provinceid, cityid,te, 
+sum(1) as playnum, count(distinct(mac)) as devnum, 0 as totalplaynum , 0 as totaldevnum
+from superssp_adstat_exp where daytime = @yestoday and type=0
+group by mediaid,cityid, provinceid,te
+        	]]></value>
+        </property>
+   </bean>
+   <!-- ############## 维度汇聚3 (分媒体，分super广告位) mediaid, adptype, creativeid=-1, provinceid, cityid, te  ############### -->
+    <bean name="adptype_allcreative_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_allcreative_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT into TABLE ad_report_adptype_area PARTITION (daytime=@yestoday)
+select mediaid,-1 as creativeid, adptype, provinceid, cityid,te, 
+sum(1) as playnum, count(distinct(mac)) as devnum, 0 as totalplaynum , 0 as totaldevnum
+from superssp_adstat_exp where daytime = @yestoday and type=0
+group by mediaid,adptype,cityid, provinceid,te
+        	]]></value>
+        </property>
+   </bean>
+
+<!-- ############## 维度汇聚4 (不分媒体，分super广告位) mediaid, adptype, creativeid, provinceid, cityid, te  ############### -->
+
+  <bean name="adptype_allcreative_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_allcreative_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+INSERT into TABLE ad_report_adptype_area PARTITION (daytime=@yestoday)
+select -1 mediaid,-1 as creativeid, adptype, provinceid, cityid,te, 
+sum(1) as playnum, count(distinct(mac)) as devnum, 0 as totalplaynum , 0 as totaldevnum
+from superssp_adstat_exp where daytime = @yestoday and type=0
+group by adptype,cityid, provinceid,te
+        	]]></value>
+        </property>
+   </bean>
+
+     
+   <!-- ###################### 分维度汇总结果(不分创意，不分区域，从区域表sum)  ####################### -->
+    <!-- 按区域汇总直接统计 -->
+  <bean name="adptype_agreeNoArea" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="adptype_agreeNoArea" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	INSERT INTO TABLE ad_report_adptype PARTITION (daytime=@yestoday)
+	select mediaid,creativeid,adptype,te,sum(playnum) playnum,sum(devnum) devnum ,sum(totalplaynum) totalplaynum,sum(totaldevnum) totaldevnum
+	from ad_report_adptype_area t where daytime=@yestoday and creativeid='-1'
+	group by mediaid,creativeid,adptype,te
+        	]]></value>
+        </property>
+  </bean>
+  
+<!--  ###################### 触达N+计算  ######################### -->
+<!-- 1:不分媒体，不分super广告位 -->
+  <bean name="touchn_area_nome_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="touchn_area_nome_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	insert overwrite table ad_report_touch_area PARTITION (daytime=@yestoday)
+select -1 as mediaid, creativeid,-1 as adptype, provinceid, cityid, te ,sum(exp) playnum,
+	 sum(case when exp >=1 then 1 else 0 end) as touch1,
+	 sum(case when exp >=2 then 1 else 0 end) as touch2,
+	 sum(case when exp >=3 then 1 else 0 end) as touch3,
+	 sum(case when exp >=4 then 1 else 0 end) as touch4,
+	 sum(case when exp >=5 then 1 else 0 end) as touch5,
+	 sum(case when exp >=6 then 1 else 0 end) as touch6,
+	 sum(case when exp >=7 then 1 else 0 end) as touch7,
+	 sum(case when exp >=8 then 1 else 0 end) as touch8,
+	 sum(case when exp >=9 then 1 else 0 end) as touch9,
+	 sum(case when exp >=10 then 1 else 0 end) as touch10,
+	 sum(case when exp >=11 then 1 else 0 end) as touch11,
+	 sum(case when exp >=12 then 1 else 0 end) as touch12,
+	 sum(case when exp >=13 then 1 else 0 end) as touch13,
+	 sum(case when exp >=14 then 1 else 0 end) as touch14,
+	 sum(case when exp >=15 then 1 else 0 end) as touch15
+from (select -1 as mediaid, creativeid, -1 as adptype, provinceid, cityid, te, mac, count(1) exp
+			 from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid 
+			 where  daytime = @yestoday and type=0
+			group by t2.creativeid, cityid, provinceid, te, mac
+			) tmp
+group by creativeid, provinceid, cityid, te
+        	]]></value>
+        </property>
+  </bean>
+
+<!-- 2:分媒体,分super广告位 -->
+  <bean name="touchn_area_me_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="touchn_area_me_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	insert into table ad_report_touch_area PARTITION (daytime=@yestoday)
+select mediaid, creativeid, adptype, provinceid, cityid, te ,sum(exp) playnum,
+	 sum(case when exp >=1 then 1 else 0 end) as touch1,
+	 sum(case when exp >=2 then 1 else 0 end) as touch2,
+	 sum(case when exp >=3 then 1 else 0 end) as touch3,
+	 sum(case when exp >=4 then 1 else 0 end) as touch4,
+	 sum(case when exp >=5 then 1 else 0 end) as touch5,
+	 sum(case when exp >=6 then 1 else 0 end) as touch6,
+	 sum(case when exp >=7 then 1 else 0 end) as touch7,
+	 sum(case when exp >=8 then 1 else 0 end) as touch8,
+	 sum(case when exp >=9 then 1 else 0 end) as touch9,
+	 sum(case when exp >=10 then 1 else 0 end) as touch10,
+	 sum(case when exp >=11 then 1 else 0 end) as touch11,
+	 sum(case when exp >=12 then 1 else 0 end) as touch12,
+	 sum(case when exp >=13 then 1 else 0 end) as touch13,
+	 sum(case when exp >=14 then 1 else 0 end) as touch14,
+	 sum(case when exp >=15 then 1 else 0 end) as touch15
+from (select mediaid, creativeid, adptype, provinceid, cityid, te, mac, count(1) exp
+			 from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid 
+			 where  daytime = @yestoday and type=0
+			group by t2.creativeid, mediaid, adptype, cityid, provinceid, te, mac
+			) tmp
+group by mediaid, creativeid, adptype, provinceid, cityid, te
+        	]]></value>
+        </property>
+  </bean>
+  
+  <!-- 3:分媒体,不分super广告位 -->
+  <bean name="touchn_area_me_noad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="touchn_area_me_noad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	insert into table ad_report_touch_area PARTITION (daytime=@yestoday)
+select mediaid, creativeid,-1 as adptype, provinceid, cityid, te ,sum(exp) playnum,
+	 sum(case when exp >=1 then 1 else 0 end) as touch1,
+	 sum(case when exp >=2 then 1 else 0 end) as touch2,
+	 sum(case when exp >=3 then 1 else 0 end) as touch3,
+	 sum(case when exp >=4 then 1 else 0 end) as touch4,
+	 sum(case when exp >=5 then 1 else 0 end) as touch5,
+	 sum(case when exp >=6 then 1 else 0 end) as touch6,
+	 sum(case when exp >=7 then 1 else 0 end) as touch7,
+	 sum(case when exp >=8 then 1 else 0 end) as touch8,
+	 sum(case when exp >=9 then 1 else 0 end) as touch9,
+	 sum(case when exp >=10 then 1 else 0 end) as touch10,
+	 sum(case when exp >=11 then 1 else 0 end) as touch11,
+	 sum(case when exp >=12 then 1 else 0 end) as touch12,
+	 sum(case when exp >=13 then 1 else 0 end) as touch13,
+	 sum(case when exp >=14 then 1 else 0 end) as touch14,
+	 sum(case when exp >=15 then 1 else 0 end) as touch15
+from (select mediaid, creativeid,-1 as adptype, provinceid, cityid, te, mac, count(1) exp
+			 from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid 
+			 where  daytime = @yestoday and type=0
+			group by t2.creativeid, mediaid, cityid, provinceid, te, mac
+			) tmp
+group by mediaid, creativeid, provinceid, cityid, te
+        	]]></value>
+        </property>
+  </bean>
+  
+  
+  <!-- 4:不分媒体，分super广告位  -->
+  <bean name="touchn_area_nome_ad" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="touchn_area_nome_ad" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	insert into table ad_report_touch_area PARTITION (daytime=@yestoday)
+select -1 as mediaid, creativeid, adptype, provinceid, cityid, te ,sum(exp) playnum,
+	 sum(case when exp >=1 then 1 else 0 end) as touch1,
+	 sum(case when exp >=2 then 1 else 0 end) as touch2,
+	 sum(case when exp >=3 then 1 else 0 end) as touch3,
+	 sum(case when exp >=4 then 1 else 0 end) as touch4,
+	 sum(case when exp >=5 then 1 else 0 end) as touch5,
+	 sum(case when exp >=6 then 1 else 0 end) as touch6,
+	 sum(case when exp >=7 then 1 else 0 end) as touch7,
+	 sum(case when exp >=8 then 1 else 0 end) as touch8,
+	 sum(case when exp >=9 then 1 else 0 end) as touch9,
+	 sum(case when exp >=10 then 1 else 0 end) as touch10,
+	 sum(case when exp >=11 then 1 else 0 end) as touch11,
+	 sum(case when exp >=12 then 1 else 0 end) as touch12,
+	 sum(case when exp >=13 then 1 else 0 end) as touch13,
+	 sum(case when exp >=14 then 1 else 0 end) as touch14,
+	 sum(case when exp >=15 then 1 else 0 end) as touch15
+from (select -1 as mediaid, creativeid, adptype, provinceid, cityid, te, mac, count(1) exp
+			 from adst_creative_info t1 join superssp_adstat_exp t2 on t1.creativeid = t2.creativeid 
+			 where  daytime = @yestoday and type=0
+			group by t2.creativeid, adptype, cityid, provinceid, te, mac
+			) tmp
+group by creativeid, adptype, provinceid, cityid, te
+        	]]></value>
+        </property>
+  </bean>
+  
+  <!-- 将分区域数据累加到不分区域表中  -->
+  <bean name="touchn_noarea" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="touchn_noarea" />  
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+	insert overwrite table ad_report_touch PARTITION (daytime=@yestoday)
+select mediaid, creativeid, adptype, te ,sum(playnum) playnum,
+sum(touch1) touch1,
+sum(touch2) touch2,
+sum(touch3) touch3,
+sum(touch4) touch4,
+sum(touch5) touch5,
+sum(touch6) touch6,
+sum(touch7) touch7,
+sum(touch8) touch8,
+sum(touch9) touch9,
+sum(touch10)  touch10,
+sum(touch11)  touch11,
+sum(touch12)  touch12,
+sum(touch13)  touch13,
+sum(touch14)  touch14,
+sum(touch15)  touch15
+from ad_report_touch_area where daytime=@yestoday
+group by mediaid, creativeid, adptype, te
+        	]]></value>
+        </property>
+  </bean>
+
+<!-- ################  组织任务   ########################### -->  
+   
+	<bean id="agreeTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+                <entry key="adptype_setdynamic_nonstrict" value-ref="adptype_setdynamic_nonstrict"/>
+					<entry key="adptype_yestodaymac" value-ref="adptype_yestodaymac"/>
+					<entry key="adptype_yestodaybeforemac" value-ref="adptype_yestodaybeforemac"/>
+					<entry key="adptype_yestodaynewmac" value-ref="adptype_yestodaynewmac"/>
+					<entry key="adptype_yestodaysharemac" value-ref="adptype_yestodaysharemac"/>
+					<entry key="adptype_clearmac" value-ref="adptype_clearmac"/>
+					<entry key="adptype_inserthistorymac" value-ref="adptype_inserthistorymac"/>
+					<entry key="adptype_addnewmac" value-ref="adptype_addnewmac"/>
+					<entry key="adptype_addsharemac" value-ref="adptype_addsharemac"/>
+					<entry key="adptype_cleartmpmac" value-ref="adptype_cleartmpmac"/>
+					<entry key="adptype_cleartmpshare" value-ref="adptype_cleartmpshare"/>
+					<entry key="adptype_cleartmpold" value-ref="adptype_cleartmpold"/>
+					<entry key="adptype_cleartmpnew" value-ref="adptype_cleartmpnew"/>
+					
+					<!-- 维度汇聚1 (不分媒体，不分super广告位) -->
+					<entry key="adptype_gettotaldev_nome_noad" value-ref="adptype_gettotaldev_nome_noad"/>
+					<entry key="adptype_getplayanddev_nome_noad" value-ref="adptype_getplayanddev_nome_noad"/>
+					<entry key="adptype_getpmergeplayanddev_nome_noad" value-ref="adptype_getpmergeplayanddev_nome_noad"/>
+					<entry key="adptype_gettotalplay_nome_noad" value-ref="adptype_gettotalplay_nome_noad"/>
+					<entry key="adptype_getresult_nome_noad" value-ref="adptype_getresult_nome_noad"/>
+					<entry key="adptype_cleartmpresult_nome_noad" value-ref="adptype_cleartmpresult_nome_noad"/>
+					<entry key="adptype_clearperresult_nome_noad" value-ref="adptype_clearperresult_nome_noad"/>
+					
+					<!-- 维度汇聚2 (分媒体，分super广告位)) -->
+					<entry key="adptype_gettotaldev_me_ad" value-ref="adptype_gettotaldev_me_ad"/>
+					<entry key="adptype_getplayanddev_me_ad" value-ref="adptype_getplayanddev_me_ad"/>
+					<entry key="adptype_getpmergeplayanddev_me_ad" value-ref="adptype_getpmergeplayanddev_me_ad"/>
+					<entry key="adptype_gettotalplay_me_ad" value-ref="adptype_gettotalplay_me_ad"/>
+					<entry key="adptype_getresult_me_ad" value-ref="adptype_getresult_me_ad"/>
+					<entry key="adptype_cleartmpresult_me_ad" value-ref="adptype_cleartmpresult_me_ad"/>
+					<entry key="adptype_clearperresult_me_ad" value-ref="adptype_clearperresult_me_ad"/>
+					
+					<!-- 维度汇聚3 (分媒体，不分supersuper广告位) -->
+					<entry key="adptype_gettotaldev_me_noad" value-ref="adptype_gettotaldev_me_noad"/>
+					<entry key="adptype_getplayanddev_me_noad" value-ref="adptype_getplayanddev_me_noad"/>
+					<entry key="adptype_getpmergeplayanddev_me_noad" value-ref="adptype_getpmergeplayanddev_me_noad"/>
+					<entry key="adptype_gettotalplay_me_noad" value-ref="adptype_gettotalplay_me_noad"/>
+					<entry key="adptype_getresult_me_noad" value-ref="adptype_getresult_me_noad"/>
+					<entry key="adptype_cleartmpresult_me_noad" value-ref="adptype_cleartmpresult_me_noad"/>
+					<entry key="adptype_clearperresult_me_noad" value-ref="adptype_clearperresult_me_noad"/>
+					
+					
+					<!-- 维度汇聚4 (不分媒体，分super广告位)) -->
+					<entry key="adptype_gettotaldev_nome_ad" value-ref="adptype_gettotaldev_nome_ad"/>
+					<entry key="adptype_getplayanddev_nome_ad" value-ref="adptype_getplayanddev_nome_ad"/>
+					<entry key="adptype_getpmergeplayanddev_nome_ad" value-ref="adptype_getpmergeplayanddev_nome_ad"/>
+					<entry key="adptype_gettotalplay_nome_ad" value-ref="adptype_gettotalplay_nome_ad"/>
+					<entry key="adptype_getresult_nome_ad" value-ref="adptype_getresult_nome_ad"/>
+					<entry key="adptype_cleartmpresult_nome_ad" value-ref="adptype_cleartmpresult_nome_ad"/>
+					<entry key="adptype_clearperresult_nome_ad" value-ref="adptype_clearperresult_nome_ad"/>
+					
+					<!-- ################## 不分区域汇总开始 ############################ -->
+					
+					
+					<!-- 不分区域汇总1 (不分媒体，不分super广告位) -->
+					<entry key="adptypenoarea_gettotaldev_nome_noad" value-ref="adptypenoarea_gettotaldev_nome_noad"/>
+					<entry key="adptypenoarea_getplayanddev_nome_noad" value-ref="adptypenoarea_getplayanddev_nome_noad"/>
+					<entry key="adptypenoarea_getpmergeplayanddev_nome_noad" value-ref="adptypenoarea_getpmergeplayanddev_nome_noad"/>
+					<entry key="adptypenoarea_gettotalplay_nome_noad" value-ref="adptypenoarea_gettotalplay_nome_noad"/>
+					<entry key="adptypenoarea_getresult_nome_noad" value-ref="adptypenoarea_getresult_nome_noad"/>
+					<entry key="adptypenoarea_cleartmpresult_nome_noad" value-ref="adptypenoarea_cleartmpresult_nome_noad"/>
+					<entry key="adptypenoarea_clearperresult_nome_noad" value-ref="adptypenoarea_clearperresult_nome_noad"/>
+					
+					<!-- 不分区域汇总2 (分媒体，分super广告位)) -->
+					<entry key="adptypenoarea_gettotaldev_me_ad" value-ref="adptypenoarea_gettotaldev_me_ad"/>
+					<entry key="adptypenoarea_getplayanddev_me_ad" value-ref="adptypenoarea_getplayanddev_me_ad"/>
+					<entry key="adptypenoarea_getpmergeplayanddev_me_ad" value-ref="adptypenoarea_getpmergeplayanddev_me_ad"/>
+					<entry key="adptypenoarea_gettotalplay_me_ad" value-ref="adptypenoarea_gettotalplay_me_ad"/>
+					<entry key="adptypenoarea_getresult_me_ad" value-ref="adptypenoarea_getresult_me_ad"/>
+					<entry key="adptypenoarea_cleartmpresult_me_ad" value-ref="adptypenoarea_cleartmpresult_me_ad"/>
+					<entry key="adptypenoarea_clearperresult_me_ad" value-ref="adptypenoarea_clearperresult_me_ad"/>
+					
+					<!-- 不分区域汇总3 (分媒体，不分supersuper广告位) -->
+					<entry key="adptypenoarea_gettotaldev_me_noad" value-ref="adptypenoarea_gettotaldev_me_noad"/>
+					<entry key="adptypenoarea_getplayanddev_me_noad" value-ref="adptypenoarea_getplayanddev_me_noad"/>
+					<entry key="adptypenoarea_getpmergeplayanddev_me_noad" value-ref="adptypenoarea_getpmergeplayanddev_me_noad"/>
+					<entry key="adptypenoarea_gettotalplay_me_noad" value-ref="adptypenoarea_gettotalplay_me_noad"/>
+					<entry key="adptypenoarea_getresult_me_noad" value-ref="adptypenoarea_getresult_me_noad"/>
+					<entry key="adptypenoarea_cleartmpresult_me_noad" value-ref="adptypenoarea_cleartmpresult_me_noad"/>
+					<entry key="adptypenoarea_clearperresult_me_noad" value-ref="adptypenoarea_clearperresult_me_noad"/>
+					
+					
+					<!-- 不分区域汇总4 (不分媒体，分super广告位)) -->
+					<entry key="adptypenoarea_gettotaldev_nome_ad" value-ref="adptypenoarea_gettotaldev_nome_ad"/>
+					<entry key="adptypenoarea_getplayanddev_nome_ad" value-ref="adptypenoarea_getplayanddev_nome_ad"/>
+					<entry key="adptypenoarea_getpmergeplayanddev_nome_ad" value-ref="adptypenoarea_getpmergeplayanddev_nome_ad"/>
+					<entry key="adptypenoarea_gettotalplay_nome_ad" value-ref="adptypenoarea_gettotalplay_nome_ad"/>
+					<entry key="adptypenoarea_getresult_nome_ad" value-ref="adptypenoarea_getresult_nome_ad"/>
+					<entry key="adptypenoarea_cleartmpresult_nome_ad" value-ref="adptypenoarea_cleartmpresult_nome_ad"/>
+					<entry key="adptypenoarea_clearperresult_nome_ad" value-ref="adptypenoarea_clearperresult_nome_ad"/>
+					
+					
+					<!-- ################## 不分区域汇总结束 ############################ -->
+					
+					<!-- 不分创意统计 -->
+					<entry key="adptype_allcreative_nome_noad" value-ref="adptype_allcreative_nome_noad"/>
+					<entry key="adptype_allcreative_me_noad" value-ref="adptype_allcreative_me_noad"/>
+					<entry key="adptype_allcreative_me_ad" value-ref="adptype_allcreative_me_ad"/>
+					<entry key="adptype_allcreative_nome_ad" value-ref="adptype_allcreative_nome_ad"/>
+					
+					<!-- 不分创意汇总不分区域结果 -->
+					<entry key="adptype_agreeNoArea" value-ref="adptype_agreeNoArea"/> 
+					
+						
+					<!-- ################## 触达N+计算 ############################ -->
+					
+					<!-- 分区域分维度-->
+					<entry key="touchn_area_nome_noad" value-ref="touchn_area_nome_noad"/>
+					<entry key="touchn_area_me_ad" value-ref="touchn_area_me_ad"/>
+					<entry key="touchn_area_me_noad" value-ref="touchn_area_me_noad"/>
+					<entry key="touchn_area_nome_ad" value-ref="touchn_area_nome_ad"/>
+					
+					<!-- 不分区域 -->
+					<entry key="touchn_noarea" value-ref="touchn_noarea"/> 
+			</map>
+		</constructor-arg>
+	</bean>
+	    
+    <!-- hive汇聚任务类 -->
+     <bean name="hiveAggreJob" class="com.voole.ad.aggre.detail.BaseAggreJob">
+     	  <property name="agreeTaskMap" ref="agreeTaskMap" />
+     </bean>
+     
+ 
+
+</beans>

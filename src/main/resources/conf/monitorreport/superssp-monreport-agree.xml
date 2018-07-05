@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	hive 离线汇聚任务
+        	###################### (终端上报，局域网等信息) #########################
+			#
+		    c:终端信息上报
+        	d:卡顿汇报
+        	e:局域网信息
+        	f:投屏信息
+			#
+			########################################################################
+        -->
+  <!-- ################  配置计算任务开始  ########################### -->     
+  <!-- c-1: 终端信息上报不分oem (oemid=-1) -->
+  <bean name="monreport_terminal_nooem" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="monreport_terminal_nooem" />
+      	 <property name="enable" value="true" />  
+      	 <property name="taskBody">
+        	<value><![CDATA[
+INSERT OVERWRITE TABLE ad_report_terminal_day PARTITION (daytime=@yestoday)
+select 900109101 as oemid,
+count(case when type = 0 then 1 else null end) as tv_count,
+count(case when type = 1 then 1 else null end) as terminal_count,
+count(case when type=1 and length(idfa)=0 then 1 else null end) as android_count,
+count(case when type=1 and length(idfa)>0 then 1 else null end) as iphone_count
+from adst_terminal_info
+where daytime=@yestoday
+        	]]></value>
+        </property>
+   </bean>
+    <!-- c-2: 终端信息上报分oemid -->
+    <bean name="monreport_terminal_oem" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="monreport_terminal_oem" />
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+        	INSERT INTO TABLE ad_report_terminal_day PARTITION (daytime=@yestoday)
+select oemid,
+count(case when type = 0 then 1 else null end) as tv_count,
+count(case when type = 1 then 1 else null end) as terminal_count,
+count(case when type=1 and length(idfa)=0 then 1 else null end) as android_count,
+count(case when type=1 and length(idfa)>0 then 1 else null end) as iphone_count
+from adst_terminal_info
+where daytime=@yestoday
+group by oemid
+        	]]></value>
+        </property>
+   </bean>
+     <!-- d-1:卡顿汇报 维度 oemid = -1 (全部), creativeid = -1 (全部) -->
+    <bean name="monreport_lag_nooem_nocreative" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="monreport_lag_nooem_nocreative" />
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+        	INSERT OVERWRITE TABLE ad_report_playlag_day PARTITION (daytime=@yestoday)
+select 900109101 as oemid, -1 as creativeid, sum(lag_num) lag_count, count(distinct mac) dev_num
+from adst_lag_info
+where daytime=@yestoday
+        	]]></value>
+        </property>
+   </bean>
+
+    <!-- d-2: 卡顿汇报 维度 oemid = -1 (全部), 分 creativeid -->
+    <bean name="monreport_lag_nooem_creative" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="monreport_lag_nooem_creative" />
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+            INSERT into TABLE ad_report_playlag_day PARTITION (daytime=@yestoday)
+            select 900109101 as oemid, creativeid, sum(lag_num) lag_count, count(distinct mac) dev_num
+            from adst_lag_info
+            where daytime=@yestoday
+            group by creativeid
+        	]]></value>
+        </property>
+   </bean>
+   
+     <!-- 	e:局域网信息 -->
+    <bean name="monreport_lan" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="monreport_lan" />
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+        INSERT OVERWRITE TABLE ad_report_lan_day PARTITION (daytime=@yestoday)
+        select
+        900109101 as oemid,
+        count(distinct mac) as terminal_num,
+        count(distinct tmac) as dev_num
+        from adst_lan_info
+        where daytime=@yestoday
+        	]]></value>
+        </property>
+   </bean>
+
+    <!--6、投屏行为汇报 -->
+    <bean name="monreport_projection" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="monreport_projection" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+INSERT OVERWRITE TABLE ad_report_projection_day PARTITION (daytime=@yestoday)
+select 900109101 as oemid, count(1) pv, count(distinct tmac) uv, count(distinct tmac) tmac_num, count(distinct pmac) pmac_num
+from adst_projection_info
+where daytime=@yestoday
+        	]]></value>
+        </property>
+    </bean>
+
+    <!--  ############### 开机预下载计算任务开始 ########################### -->
+
+
+    <bean name="predown_nonstrict" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_nonstrict" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+             set hive.exec.dynamic.partition.mode=nonstrict
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="predown_yestoday" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_yestoday" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+       insert overwrite table tmp_startpre_downstat_aggre PARTITION (planid)
+SELECT  starttime, mac, oemid, downstatus,'' ext1, '' ext2, '' ext3, '' ext4, '' ext5, planid
+from
+(
+select *,row_number() over (partition by mac order by starttime desc) num from
+(select * FROM  startpre_downstat_detail t WHERE t.daytime=@yestoday) ds
+) tmp
+where tmp.num=1
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="predown_history" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_history" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table tmp_old_startpre_downstat_aggre PARTITION (planid)
+select t.updatetime, t.mac, t.oemid, t.downstatus,'' ext1, '' ext2, '' ext3, '' ext4, '' ext5, t.planid
+from startpre_downstat_aggre t
+ left join tmp_startpre_downstat_aggre tl
+on (t.planid = tl.planid and t.mac = tl.mac and t.oemid = tl.oemid)
+where tl.mac is null
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="predown_new" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_new" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table tmp_new_startpre_downstat_aggre PARTITION (planid)
+select t.updatetime, t.mac, t.oemid, t.downstatus,'' ext1, '' ext2, '' ext3, '' ext4, '' ext5, t.planid
+from tmp_startpre_downstat_aggre t
+ left join startpre_downstat_aggre tl
+on (t.planid = tl.planid and t.mac = tl.mac and t.oemid = tl.oemid)
+where tl.mac is null
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="predown_share" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_share" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table tmp_share_startpre_downstat_aggre PARTITION (planid)
+select t.updatetime, t.mac, t.oemid, t.downstatus,'' ext1, '' ext2, '' ext3, '' ext4, '' ext5, t.planid
+from tmp_startpre_downstat_aggre t join startpre_downstat_aggre tl
+on (t.planid = tl.planid and t.mac = tl.mac and t.oemid = tl.oemid)
+        	]]></value>
+        </property>
+    </bean>
+
+
+    <bean name="predown_clear_mac" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_clear_mac" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+TRUNCATE TABLE startpre_downstat_aggre
+        	]]></value>
+        </property>
+    </bean>
+
+
+    <bean name="predown_insert_old" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_insert_old" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert overwrite table startpre_downstat_aggre PARTITION (planid)
+select t.updatetime, t.mac, t.oemid, t.downstatus,'' ext1, '' ext2, '' ext3, '' ext4, '' ext5, t.planid
+from tmp_old_startpre_downstat_aggre t
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="predown_insert_new" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_insert_new" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert into table startpre_downstat_aggre PARTITION (planid)
+select t.updatetime, t.mac, t.oemid, t.downstatus,'' ext1, '' ext2, '' ext3, '' ext4, '' ext5, t.planid
+from tmp_new_startpre_downstat_aggre t
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="predown_insert_share" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_insert_share" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+insert into table startpre_downstat_aggre PARTITION (planid)
+select t.updatetime, t.mac, t.oemid, t.downstatus,'' ext1, '' ext2, '' ext3, '' ext4, '' ext5, t.planid
+from tmp_share_startpre_downstat_aggre t
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="predown_clear_tmp" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_clear_tmp" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+TRUNCATE TABLE tmp_startpre_downstat_aggre
+        	]]></value>
+        </property>
+    </bean>
+
+    <bean name="predown_clear_share" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_clear_share" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+TRUNCATE TABLE tmp_share_startpre_downstat_aggre
+        	]]></value>
+        </property>
+    </bean>
+
+
+    <bean name="predown_clear_old" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_clear_old" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+TRUNCATE TABLE tmp_old_startpre_downstat_aggre
+        	]]></value>
+        </property>
+    </bean>
+
+
+    <bean name="predown_clear_new" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="predown_clear_new" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+TRUNCATE TABLE tmp_new_startpre_downstat_aggre
+        	]]></value>
+        </property>
+    </bean>
+
+
+
+    <!--  ############### 开机预下载计算任务结束 ########################### -->
+
+   
+
+
+
+<!-- ################  组织任务   ########################### -->  
+   
+	<bean id="monreportAgreeTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+                    <!--终端上报统计-->
+					<entry key="monreport_terminal_nooem" value-ref="monreport_terminal_nooem"/>
+				<!-- <entry key="monreport_terminal_oem" value-ref="monreport_terminal_oem"/>-->
+                    <!--卡顿汇报统计-->
+                   <entry key="monreport_lag_nooem_nocreative" value-ref="monreport_lag_nooem_nocreative"/>
+                    <entry key="monreport_lag_nooem_creative" value-ref="monreport_lag_nooem_creative"/>
+                    <!--局域网信息汇报-->
+					<entry key="monreport_lan" value-ref="monreport_lan"/>
+					<entry key="monreport_projection" value-ref="monreport_projection"/>
+
+
+                 <!--开机预下载汇报(注:此任务可以和终端汇报分开部署，注释此部分的配置即可。)-->
+                <entry key="predown_nonstrict" value-ref="predown_nonstrict"/>
+                <entry key="predown_yestoday" value-ref="predown_yestoday"/>
+                <entry key="predown_history" value-ref="predown_history"/>
+                <entry key="predown_new" value-ref="predown_new"/>
+                <entry key="predown_share" value-ref="predown_share"/>
+                <entry key="predown_clear_mac" value-ref="predown_clear_mac"/>
+                <entry key="predown_insert_old" value-ref="predown_insert_old"/>
+                <entry key="predown_insert_new" value-ref="predown_insert_new"/>
+                <entry key="predown_insert_share" value-ref="predown_insert_share"/>
+                <entry key="predown_clear_tmp" value-ref="predown_clear_tmp"/>
+                <entry key="predown_clear_share" value-ref="predown_clear_share"/>
+                <entry key="predown_clear_old" value-ref="predown_clear_old"/>
+                <entry key="predown_clear_new" value-ref="predown_clear_new"/>
+
+
+			</map>
+		</constructor-arg>
+	</bean>
+	    
+    <!-- hive汇聚任务类 -->
+     <bean name="reportAggreJob" class="com.voole.ad.aggre.detail.BaseAggreJob">
+     	  <property name="agreeTaskMap" ref="monreportAgreeTaskMap" />
+     </bean>
+     
+ 
+
+</beans>

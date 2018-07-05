@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	监测汇报(除曝光，库存汇报的其他汇报)
+        	c:终端信息上报
+        	d:卡顿汇报
+        	e:局域网信息
+        	f:投屏信息
+        -->
+
+    <!-- 定时任务启动类 -->
+	<bean name="startMonitorReportJob" class="com.voole.ad.main.StartJob">
+        <property name="parseFile" ref="parseReportFileJob"/>
+        <property name="loadJob" ref="loadReportJob"/>
+        <property name="hiveAggreJob" ref="reportAggreJob"/>
+        <!--如部署开机预下载数据解析，以下两个步骤注释掉即可-->
+        <property name="exportJob" ref="exportMonReportJob"/>
+        <property name="extendOptJob" ref="syncMonReportExtJob"/>
+        <!-- timeDelay:-1 昨天；0 当前；1 明天 -->
+        <property name="timeDelay" value="-1"/>
+        <!-- timeStepSize:步长，连续处理几天的数据 -->
+        <property name="timeStepSize" value="1"/>
+        <!-- 时间类型：0天，1小时(暂未处理) -->
+        <property name="timeType" value="0"/>
+	</bean>
+    
+    
+    <bean name="startAdstatJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
+        <property name="targetObject" ref="startMonitorReportJob" />
+        <property name="targetMethod" value="start" />
+        <property name="concurrent" value="false" />
+    </bean>
+   
+    <bean id="startAdstatTrigger" class="org.springframework.scheduling.quartz.CronTriggerFactoryBean">     
+         <property name="jobDetail" ref="startAdstatJob" />   
+         <property name="cronExpression" value="10 45 10 * * ?" />
+    </bean>	    
+    
+    <!-- 启动调度器 -->
+    <bean id="scheduler" class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
+        <property name="triggers">
+            <list>
+                <ref bean="startAdstatTrigger" />
+            </list>
+        </property>
+    </bean>
+
+</beans>

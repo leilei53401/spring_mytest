@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<!-- 查询有效预排期对应的排期的相关信息 -->
+	<bean name="combTable" class="com.voole.ad.preplan.common.CombMacServiceImp">
+		<property name="unionMacComb">
+			<value><![CDATA[
+			select distinct mac,starttime, planid, status,daytime from startpre.tmp_preplan_mac_status union all
+select distinct mac,starttime, planid, status,daytime from startpre.preplan_mac_status
+        	]]></value>
+		</property>
+		<property name="insertMacComb">
+			<value><![CDATA[
+			insert overwrite table startpre.comb_preplan_mac_status partition (daytime='@daytime',planid='@planid')
+        	]]></value>
+		</property>
+		<property name="insertMacPrePlan">
+			<value><![CDATA[
+			insert overwrite table startpre.preplan_mac_status partition (daytime='@daytime',planid='@planid')
+        	]]></value>
+		</property>
+		<property name="selectMacComb">
+			<value><![CDATA[
+			select starttime,mac,status where a.daytime='@daytime' and a.planid='@planid'
+        	]]></value>
+		</property>
+		<property name="truncateMac">
+			<value><![CDATA[
+			truncate table @tablename
+        	]]></value>
+		</property>
+		<property name="addPatition">
+			<value><![CDATA[
+			alter table @tablename add if not exists partition (daytime='@daytime', planid='@planid')
+        	]]></value>
+		</property>
+		<property name="rooturl" value="http://platform.super-ssp.tv:8070/rest/api/v1/planid/" />
+	</bean>
+</beans>

@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+        <!--
+        	hive 离线汇聚任务: 注册日志报表，投放日志报表汇聚
+        -->
+  <!-- ################  注册日志计算任务开始  ########################### -->
+  <!--  -->
+    <bean name="reg_setdynamic_nonstrict" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="reg_setdynamic_nonstrict" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+             set hive.exec.dynamic.partition.mode=nonstrict
+        	]]></value>
+        </property>
+    </bean>
+  <bean name="reg_yestodaynew" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="reg_yestodaynew" />
+      	 <property name="enable" value="true" />  
+      	 <property name="taskBody">
+        	<value><![CDATA[
+insert overwrite table tmp_new_superssp_reg_sum_mac PARTITION (oemid, daytime)
+select l.mac, -1 as provinceid, -1 as cityid, l.oemid, '@yestoday'
+from (select * from superssp_reg_log where daytime=@yestoday)  l left join
+(select * from superssp_reg_sum_mac where daytime < @yestoday) m
+on ( m.mac = l.mac and m.oemid = l.oemid)
+where m.mac is null
+group by l.mac,l.oemid
+        	]]></value>
+        </property>
+   </bean>
+    <!-- 导入新用户到注册用户表 -->
+    <bean name="reg_impyestodaynew" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+      	 <property name="taskId" value="reg_impyestodaynew" />
+      	 <property name="enable" value="true" />  
+      	  <property name="taskBody">
+        	<value><![CDATA[
+        	insert overwrite table superssp_reg_sum_mac PARTITION (oemid, daytime)
+select * from tmp_new_superssp_reg_sum_mac where daytime=@yestoday
+        	]]></value>
+        </property>
+   </bean>
+
+
+    <!-- 统计昨日数据和新增用户量 -->
+    <bean name="reg_adstat_day" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="reg_adstat_day" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+      insert overwrite table superssp_reg_day PARTITION (daytime=@yestoday)
+select oemid, sum(pv) pv, sum(uv) uv, sum(newuv) newu
+from (
+select oemid, count(1) pv, count(distinct mac) uv, 0 newuv from superssp_reg_log where daytime=@yestoday group by oemid
+union all
+select oemid, 0 pv, 0 uv, count(distinct mac) newuv from superssp_reg_sum_mac  where daytime=@yestoday group by oemid
+) utmp
+group by oemid
+        	]]></value>
+        </property>
+    </bean>
+
+    <!-- 清除临时用户表数据 -->
+    <bean name="reg_cleartmpnew" class="com.voole.ad.aggre.detail.BaseAggreTask" >
+        <property name="taskId" value="reg_cleartmpnew" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+				TRUNCATE TABLE tmp_new_superssp_reg_sum_mac
+        	]]></value>
+        </property>
+    </bean>
+
+
+<!-- ################  组织注册计算任务   ########################### -->
+   
+	<bean id="reglogAgreeTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+                    <entry key="reg_setdynamic_nonstrict" value-ref="reg_setdynamic_nonstrict"/>
+					<entry key="reg_yestodaynew" value-ref="reg_yestodaynew"/>
+                    <entry key="reg_impyestodaynew" value-ref="reg_impyestodaynew"/>
+                    <entry key="reg_adstat_day" value-ref="reg_adstat_day"/>
+					<entry key="reg_cleartmpnew" value-ref="reg_cleartmpnew"/>
+			</map>
+		</constructor-arg>
+	</bean>
+	    
+    <!-- hive汇聚任务类 -->
+     <bean name="reglogAggreJob" class="com.voole.ad.aggre.detail.BaseAggreJob">
+     	  <property name="agreeTaskMap" ref="reglogAgreeTaskMap" />
+     </bean>
+
+
+</beans>

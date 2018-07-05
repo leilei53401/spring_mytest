@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="adapProgram">
+	<cache	eviction="FIFO" flushInterval="60000" size="10240"	readOnly="true"/> 
+	
+	<!--根据广告节目fid查询节目id -->
+	<select id="queryValidAmid"  resultType="string">
+		SELECT amid FROM adap_movie_info WHERE status=1
+	</select>
+	
+	
+	<!--查询需要频次控制且在有效时间的排期 -->
+	<select id="queryValidPlan"  resultType="map">
+		<![CDATA[SELECT * FROM ad_plan t WHERE STATUS=1 
+			AND (t.`playtimesflag`<>0 OR t.`dailytimestype`<>0)
+		 AND SYSDATE()>plan_starttime AND SYSDATE()<plan_stoptime
+		 ]]>
+	</select>
+		
+</mapper> 

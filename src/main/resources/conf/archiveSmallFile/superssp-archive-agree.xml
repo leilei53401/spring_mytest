@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+    <!-- 通过将表数据从B导入A，在从A导入B，删除A表数据，达到hive表，小文件合并目的 -->
+    
+
+    <bean name="increase_partion" class="com.voole.ad.aggre.detail.ArchiveSmallFileTask" >
+        <property name="taskId" value="increase_partion" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+             alter table superssp_adstat_exp_text add IF NOT EXISTS partition  ( daytime=@daytime,adptype=@adptype)
+        	]]></value>
+        </property>
+    </bean>
+    
+ 	<bean name="load_orgdata" class="com.voole.ad.aggre.detail.ArchiveSmallFileTask" >
+        <property name="taskId" value="load_orgdata" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+			INSERT OVERWRITE TABLE superssp_adstat_exp_text
+PARTITION(daytime='@daytime',adptype='@adptype')
+SELECT se.starttime,se.mediaid,se.sessionid,se.oemid,se.creativeid,se.adpid,se.mac,se.planid,se.type,
+se.ip,se.provinceid,se.cityid,se.ts,se.duration,se.te,se.adsource,se.hourtime,se.ext1,se.ext2,
+se.ext3,se.ext4,se.ext5,se.ext6,se.ext7,se.ext8,se.ext9,se.ext10 FROM superssp_adstat_exp se
+WHERE se.daytime='@daytime' AND se.adptype='@adptype'
+        	]]></value>
+        </property>
+    </bean>
+    <bean name="overwrite_orgdata" class="com.voole.ad.aggre.detail.ArchiveSmallFileTask" >
+        <property name="taskId" value="overwrite_orgdata" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+			INSERT OVERWRITE TABLE superssp_adstat_exp
+PARTITION(daytime='@daytime',adptype='@adptype')
+SELECT se.starttime,se.mediaid,se.sessionid,se.oemid,se.creativeid,se.adpid,se.mac,se.planid,se.type,
+se.ip,se.provinceid,se.cityid,se.ts,se.duration,se.te,se.adsource,se.hourtime,se.ext1,se.ext2,
+se.ext3,se.ext4,se.ext5,se.ext6,se.ext7,se.ext8,se.ext9,se.ext10 FROM superssp_adstat_exp_text se
+WHERE se.daytime='@daytime' AND se.adptype='@adptype'
+        	]]></value>
+        </property>
+    </bean>
+    <bean name="truncate_temdata" class="com.voole.ad.aggre.detail.ArchiveSmallFileTask" >
+        <property name="taskId" value="truncate_temdata" />
+        <property name="enable" value="true" />
+        <property name="taskBody">
+            <value><![CDATA[
+			ALTER TABLE superssp_adstat_exp_text DROP PARTITION (daytime='@daytime',adptype='@adptype')
+        	]]></value>
+        </property>
+    </bean>
+
+<!-- ################  合并表数据  ########################### -->  
+   
+	<bean id="archiveTaskMap" class="java.util.LinkedHashMap">
+		<constructor-arg>
+			<map>
+                <entry key="increase_partion" value-ref="increase_partion"/>
+                <entry key="load_orgdata" value-ref="load_orgdata"/>
+                <entry key="overwrite_orgdata" value-ref="overwrite_orgdata"/>
+                <entry key="truncate_temdata" value-ref="truncate_temdata"/>
+			</map>
+		</constructor-arg>
+	</bean>
+	    
+    <!-- hive汇聚任务类 -->
+     <bean name="hiverArchive" class="com.voole.ad.aggre.detail.ArchiceSmallFileJob">
+     	  <property name="archiveTaskMap" ref="archiveTaskMap" />
+     </bean>
+     
+ 
+
+</beans>

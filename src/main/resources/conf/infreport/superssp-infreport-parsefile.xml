@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+       
+       <!--
+       注册，投放报表下载，解析
+       -->
+
+    <!--下载任务设置-->
+    <bean name="infFtpClientTools" class="com.voole.ad.file.ftp.FTPClientTools">
+        <property name="host" value="125.39.93.21" />
+        <property name="port" value="21" />
+        <property name="username" value="adstat" />
+        <property name="password" value="adstat" />
+        <property name="remotePath" value="/opt/data/start/inflog/" />
+        <property name="localPath" value="/opt/webapps/superssp_infreport/file/down/" />
+        <property name="bufSize" value="102400" />
+    </bean>
+
+    <!-- ftp任务工具类 -->
+    <bean name="infDownFileJob" class="com.voole.ad.file.detail.DownloadFileDetailJob">
+        <property name="ftpClientTools" ref="infFtpClientTools" />
+    </bean>
+
+
+    <!-- 本地解析任务 -->
+    <bean name="infParseFileJob" class="com.voole.ad.file.detail.InfReportFileParseJob">
+        <property name="localPath" value="/opt/webapps/superssp_infreport/file/down/" />
+        <property name="backupPath" value="/opt/webapps/superssp_infreport/file/backup/" />
+        <property name="outPath" value="/opt/webapps/superssp_infreport/file/out/" />
+    </bean>
+
+
+    <!-- 上传到 hdfs -->
+    <bean name="infLoadToHdfsJob" class="com.voole.ad.loadtohdfs.detail.LoadRegInfReportToHdfs">
+        <property name="kpiType" value="regLog" />
+        <property name="srcPath" value="/opt/webapps/superssp_infreport/file/out/" />
+        <property name="hadoopUser" value="root" />
+        <property name="hdfsRootPath" value="hdfs://Cloudera-Master:8020" />
+        <property name="dstPath">
+            <value><![CDATA[/hive/warehouse/superssp_adstat.db/superssp_inf_log/daytime={time}/]]></value>
+        </property>
+    </bean>
+
+    
+</beans>

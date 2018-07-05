@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<!-- 查询有效预排期对应的排期的相关信息 -->
+	<bean name="realtimeAlarm" class="com.voole.ad.preplan.realtimeselect.RealtimeSelectAlarmInfo">
+		<!--查询预排期sql语句 -->
+		<property name="selectAlarmAllInfo">
+			<value><![CDATA[
+			select a.oemid,a.mediaid,a.creativeid,a.area_code areaCode,a.ad_position,a.diffnum,ad.positionid,ad.super_adposid 
+            from super_ssp_plan.monitor_alarm a 
+  			left join super_ssp.ad_position ad 
+			on a.oemid = ad.oemid 
+    		and a.ad_position = ad.super_adposid 
+			where a.level=3 and a.alarmtype = 0
+        	]]></value>
+		</property>
+		<property name="selectAlarmPlan">
+			<value><![CDATA[
+			select distinct(ad.planid) planid,ad.ad_location_code,po.oemid 
+			from ad_guide.ad_plan ad 
+  			left join ad_guide.plan_oemid_link po 
+    		on ad.planid = po.planid 
+			where ad.ad_location_code = @postionid 
+  			and ad.is_rt = 0 
+  			and ad.status = 1 
+  			and ad.oemidflag = 1 
+  			and po.oemid = @oemid
+        	]]></value>
+		</property>
+		<property name="selectPrePlan">
+			<value><![CDATA[
+			select * from ad_guide.pre_plan where status != 0
+        	]]></value>
+		</property>
+	</bean>
+</beans>
